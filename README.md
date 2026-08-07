@@ -47,13 +47,40 @@ cannot type into the wrong window, which is the standing hazard of a `SendKeys` 
 VirtualStringTree based — `app_tree LocalVarsWindow` shows `LocalsTreeView` exposing only
 `Visible`/`Enabled`/`Left`/`Top`/`Width`/`Height` — so `app_get` cannot see cell text.
 
-**But there is a way round it**, found while verifying the install. The panes' popup menu items
-*are* addressable components: `lvCopyName`, `lvCopyValue`, `lvInspect`, `lvWatch`,
-`lvEvaluateModify`, `lvVisualizers`. `lvCopyValue` puts the selected node's value on the
-clipboard, which is readable from PowerShell — so a pane value can be had as text rather than as
-pixels. The open question is establishing the tree *selection*, which is not published either;
-one keystroke may still be needed for that. Untested as of 2026-08-08, but it is the first route
-to reading a debugger pane that does not involve a screenshot.
+**But there is a way round it, and it works.** The panes' popup menu items are addressable
+components — `lvCopyName`, `lvCopyValue`, `lvInspect`, `lvWatch`, `lvEvaluateModify`,
+`lvVisualizers`. Select a row, fire `lvCopyValue`, read the clipboard:
+
+```
+python tools/click.py 300 1335 --activate <ide-pid>     # select the row
+app_click DelphiIDE LocalVarsWindow lvCopyValue          # copy its value
+powershell -c Get-Clipboard                              # 'TBaseThing(Name=base)'
+```
+
+Verified 2026-08-08 on two different rows, each returning exactly what the pane displayed. So a
+debugger value **can** be had as text rather than as pixels.
+
+Selection is the part that needs a real mouse click: `app_click LocalsTreeView` fails with
+`OnClick is not assigned`, selection is not a published property, and keyboard focus will not
+reach the tree. Hence `tools/click.py`.
+
+### The coordinate trap that cost an hour
+
+Ian runs two 4K monitors at **150%**, so there are two coordinate spaces and they differ by
+exactly 1.5:
+
+| | Space | Size |
+|---|---|---|
+| `CopyFromScreen` screenshots | **physical** (it crops, it does not scale) | 7680x2160 |
+| `SetCursorPos` from a DPI-*unaware* process | **virtualised** | 5120x1440 |
+
+Click at a coordinate read off a screenshot without accounting for that and you land two thirds
+of the way to the target, silently — `SendInput` returns success and nothing happens.
+`tools/click.py` declares `PER_MONITOR_AWARE_V2` at startup, which puts `SetCursorPos` into
+physical coordinates so it matches the screenshots 1:1.
+
+It also refuses to click if the cursor will not stay where it was put, because a human moving the
+mouse would otherwise take the click in their own window.
 
 ## Safety
 
