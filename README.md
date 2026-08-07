@@ -31,14 +31,16 @@ The IDE now listens on loopback and announces itself in a discovery file. Then, 
 since it walks `Screen.CustomForms` rather than knowing anything about the IDE.
 
 Commands: `ping`/`info`, `tree`, `get`, `set`, `click`, `action`, `dialogs`, `screenshot`,
-`wait_for`, `dataset`, `field_get`. Forms are addressed by name, `"main"` or `"active"`;
-components by their owned name.
+`dataset`, `dataset_op`, `field_get`, `field_set`. Forms are addressed by name, `"main"` or
+`"active"`; components by their owned name.
 
 ## Installing
 
 1. Build `gllIdeAutomation.dproj` for the platform matching your IDE — **Win64 for `bin64\bds.exe`**,
-   Win32 for `bin\bds.exe`. A design-time package must match the bitness of the IDE loading it.
-2. **Component > Install Packages > Add**, and pick the built BPL.
+   **Win32 for `bin\bds.exe`**. A design-time package must match the bitness of the IDE loading
+   it, and the wrong one silently never loads. Both platforms are configured and both build clean.
+2. **Component > Install Packages > Add**, and pick the built BPL. Note the registration is
+   per-bitness: the 64-bit IDE reads `Known Packages x64`, the 32-bit IDE reads `Known Packages`.
 
 `tools/Start-IDE.ps1` then launches the IDE correctly and tells you whether the server came up.
 
@@ -114,6 +116,23 @@ Everything ships with Delphi — clone and build, nothing to acquire:
 `rtl`, `vcl`, `vclimg` (screenshots), `dbrtl` (the dataset commands), `IndySystem` + `IndyCore`
 (the listener). Notably **not** `designide`: nothing here touches the ToolsAPI, which is also why
 it is not tied to any particular IDE version's OTA.
+
+## Why the discovery path says GITLAK
+
+`C:\ProgramData\GITLAK\Automation` is where the server has always written its discovery files, and
+existing clients look there. It is a fixed, account-independent location so that a client and the
+application agree regardless of either process's `%TEMP%`. The name is historical rather than
+meaningful — changing it would break every existing client for no functional gain, so it stays.
+It holds one small JSON file per running instance and nothing else.
+
+## Contributing
+
+Issues and patches welcome. Two things worth knowing first:
+
+- `src/gllIdeAutomation.Server.pas` is **vendored** from the library described below, so a fix
+  here ideally wants to go upstream too. Nothing keeps the two copies in step automatically.
+- Keep it compiling on **10.3 Rio**. The inline variables set that floor already; please don't
+  raise it without a good reason.
 
 ## Provenance
 

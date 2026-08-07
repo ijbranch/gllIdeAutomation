@@ -89,10 +89,19 @@ the form itself.
 | `click` | `form?`, `name`, `mode?` | fires the component's `OnClick`. `mode=message` posts `BM_CLICK` instead and replies immediately — use it when the handler opens a modal dialog |
 | `action` | `form?`, `name` | executes a `TAction` (or the action on a named control). Covers commands with no clickable control |
 | `dialogs` | `button?` | lists open windows and their visible enabled buttons; with `button`, clicks the first match. Runs off the VCL thread, so it works while a modal loop is blocking |
-| `wait_for` | `form?`, `name?`, `prop`, `value`, `op?`, `timeoutms?` | blocks until a property satisfies a comparison |
 | `screenshot` | `area?` | PNG to the Desktop. Default is the monitor the active form is on; `"window"` or `"virtual"` also accepted |
 | `dataset` | `form?`, `name`, `fields?` | state of a `TDataSet` |
+| `dataset_op` | `form?`, `name`, `op` | insert / append / edit / post / cancel / refresh / navigate |
 | `field_get` | `form?`, `name`, `field` | one field's value from a `TDataSet` or `TDataSource` |
+| `field_set` | `form?`, `name`, `field`, `value` | writes a field, putting a browsing dataset into edit mode first |
+
+There is deliberately **no `wait` command**. Waiting is a client concern: poll `get` on the
+property you care about. A blocking wait on the server would tie up the connection and, worse,
+hold the VCL thread it marshals onto.
+
+The dataset commands are inherited from the server's origin driving database applications. They
+are of little use against the IDE itself, but they cost nothing and they are why `dbrtl` is a
+dependency.
 
 Failures return a stable `code`: `NoForm`, `NoComp`, `NoProp`, `NoHandler`, `Unauthorised`.
 

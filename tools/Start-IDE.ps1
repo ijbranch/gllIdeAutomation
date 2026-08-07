@@ -6,9 +6,9 @@
 .DESCRIPTION
     Two settings that are easy to get wrong and silently wrong when you do:
 
-    * /highdpi:unaware - Ian's standard configuration. It is a command-line switch, not a
-      compatibility flag, so there is no AppCompatFlags entry to inherit and a plain launch
-      quietly gives an IDE he does not work in.
+    * /highdpi:unaware - optional, but the IDE's fonts render poorly under DPI-aware scaling on
+      some displays. It is a command-line switch, not a compatibility flag, so there is no
+      AppCompatFlags entry to inherit and a plain launch silently gives you the other IDE.
     * GITLAK_IDE_AUTOMATION=1 - starts the automation server inside the IDE. Set permanently at
       user scope as well, so a Start-menu launch is drivable too; this script sets it for the
       child process regardless, so the script works even if that has been undone.
