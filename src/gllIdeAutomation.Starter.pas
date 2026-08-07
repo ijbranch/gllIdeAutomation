@@ -1,33 +1,30 @@
 ﻿///<summary>
-/// Starts the GITLAK automation server inside the Delphi IDE, so the <c>app_*</c> agent tools
-/// can drive the IDE the way they already drive the DBi* applications.
-///
-/// The server itself is <c>gllAutomationServer</c> in GITLAKLib, which is already compiled into
-/// GITLAKLib370.bpl and already loaded by the IDE - so nothing new is being introduced into the
-/// process. All this unit does is call <c>Start</c>, which nobody was calling.
+/// Starts the automation server inside the Delphi IDE, so an external agent can drive the IDE
+/// through its live VCL component model instead of synthesising keystrokes.
 ///
 /// <para><b>Gating.</b> It starts only when the environment variable
-/// <c>GITLAK_IDE_AUTOMATION</c> is set to 1, so an IDE launched normally - from the Start menu,
-/// by a file association, by anything at all that does not deliberately set that variable - is
-/// completely unaffected. The DBi apps gate on <c>/AUTOMATION</c> on the command line, which
-/// would be wrong here: <c>bds.exe</c> parses its own command line and treats unrecognised
-/// arguments as files to open.</para>
+/// <c>GITLAK_IDE_AUTOMATION</c> is set to 1, so an IDE launched without it is completely
+/// unaffected. Deliberately NOT a command-line switch: <c>bds.exe</c> parses its own command
+/// line and treats arguments it does not recognise as files to open.</para>
 ///
 /// <para><b>To use it:</b> set the variable, then launch the IDE from the same shell:</para>
 /// <code>
 /// $env:GITLAK_IDE_AUTOMATION = '1'
-/// Start-Process 'C:\Program Files (x86)\Embarcadero\Studio\37.0\bin64\bds.exe' `
-///   -ArgumentList '/highdpi:unaware'
+/// Start-Process 'C:\Program Files (x86)\Embarcadero\Studio.0in64ds.exe'
 /// </code>
-/// <para>The IDE then appears in <c>app_list</c> as <c>DelphiIDE</c>.</para>
+/// <para>The IDE then registers itself in the discovery directory as <c>DelphiIDE</c>, and
+/// tools/Start-IDE.ps1 does all of the above for you.</para>
 ///
 /// <para><b>What it is good for:</b> driving menus, actions, dialogs and controls through the
-/// live VCL component model, which is far more reliable than synthesising keystrokes -
-/// coordinate-free, DPI-independent, and it cannot type into the wrong window. <b>What it is
-/// not good for:</b> reading the Local Variables or Watch panes. Those are VirtualStringTree
-/// based and their cell text is not a published property, so a screenshot is still the way to
-/// read a debugger pane.</para> </summary>
-unit u_gllIdeAutomationStarter;
+/// live VCL component model - coordinate-free, DPI-independent, and it cannot type into the
+/// wrong window. <b>What it is not:</b> a way to read the Local Variables or Watch panes
+/// directly. Those are VirtualStringTree and their cell text is not a published property; see
+/// tools/read_pane.py for the clipboard route round that.</para> </summary>
+unit gllIdeAutomation.Starter;
+
+{$IF CompilerVersion < 33.0}
+  {$MESSAGE FATAL 'gllIdeAutomation requires Delphi 10.3 Rio or later.'}
+{$IFEND}
 
 interface
 
@@ -35,7 +32,7 @@ implementation
 
 uses
   System.SysUtils,
-  gllAutomationServer;
+  gllIdeAutomation.Server;
 
 const
   ///<summary> Environment variable that must be '1' before the server is started. </summary>

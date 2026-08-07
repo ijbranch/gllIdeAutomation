@@ -1,127 +1,151 @@
 # gllIdeAutomation
 
-A design-time package that starts the GITLAK automation server **inside the Delphi IDE**, so the
-`app_*` agent tools can drive the IDE the way they already drive the DBi* applications.
+A design-time package that lets you **drive the Delphi IDE from outside it** — list its forms,
+read and write published properties, click controls, fire actions, answer modal dialogs, take
+screenshots — over a loopback socket, from any language that can open a TCP connection and write
+a line of JSON.
 
-It is deliberately tiny. `gllAutomationServer` is already compiled into `GITLAKLib370.bpl`, and
-the IDE already loads that package — so the server code is *already in the IDE process*. Nobody
-was calling `Start`. That is all this package does.
+It exists because some questions can only be answered by a running IDE. Whether a debug
+visualizer is offered on a type, what the evaluator calls that type, how a value renders in Local
+Variables: none of that is visible to the compiler, and reading it off screenshots is slow and
+error-prone. This makes the IDE inspectable instead.
+
+Delphi **10.3 Rio and later**, Win32 or Win64. MIT licensed.
+
+## What you can do with it
+
+```
+$env:GITLAK_IDE_AUTOMATION = '1'
+& 'C:\Program Files (x86)\Embarcadero\Studio\37.0\bin64\bds.exe'
+```
+
+The IDE now listens on loopback and announces itself in a discovery file. Then, from anything:
+
+```json
+{ "token":"…", "id":1, "cmd":"tree" }
+{ "id":1, "ok":true, "result":{ "forms":[ {"name":"LocalVarsWindow","class":"TLocalVarsWindow","visible":true}, … ] } }
+```
+
+48 IDE forms come back on a stock install, including `LocalVarsWindow`, `WatchWindow`,
+`CallStackWindow`, `BPWindow` and `EditWindow_0` — plus the forms of whatever plugins you have,
+since it walks `Screen.CustomForms` rather than knowing anything about the IDE.
+
+Commands: `ping`/`info`, `tree`, `get`, `set`, `click`, `action`, `dialogs`, `screenshot`,
+`wait_for`, `dataset`, `field_get`. Forms are addressed by name, `"main"` or `"active"`;
+components by their owned name.
 
 ## Installing
 
-1. Build Win64 (Debug and Release) — output is
-   `C:\Users\Public\Documents\Embarcadero\Studio\37.0\Bpl\Win64\gllIdeAutomation370.bpl`.
-2. Register it: **Component > Install Packages > Add**, or add a value to
-   `HKCU\Software\Embarcadero\BDS\37.0\Known Packages x64` whose *name* is the full BPL path and
-   whose *value* is the description.
+1. Build `gllIdeAutomation.dproj` for the platform matching your IDE — **Win64 for `bin64\bds.exe`**,
+   Win32 for `bin\bds.exe`. A design-time package must match the bitness of the IDE loading it.
+2. **Component > Install Packages > Add**, and pick the built BPL.
 
-Note the `x64` list — that is the one the 64-bit IDE reads. The plain `Known Packages` list is
-for the 32-bit IDE and this package is Win64 only.
+`tools/Start-IDE.ps1` then launches the IDE correctly and tells you whether the server came up.
 
-## Running
+## Gating — it does nothing unless you ask
 
-The server does **not** start just because the package is installed. It starts only when the
-environment variable `GITLAK_IDE_AUTOMATION` is `1`:
+Installing the package does not start anything. The server starts only when the environment
+variable `GITLAK_IDE_AUTOMATION` is `1` in the launching environment. An IDE started any other
+way is completely unaffected.
 
-```powershell
-$env:GITLAK_IDE_AUTOMATION = '1'
-Start-Process 'C:\Program Files (x86)\Embarcadero\Studio\37.0\bin64\bds.exe' `
-  -ArgumentList '/highdpi:unaware'
-```
+Set it permanently (user scope) if you want every IDE to be drivable; leave it unset and use
+`Start-IDE.ps1` if you would rather opt in per session.
 
-An IDE started any other way — Start menu, file association, anything that does not deliberately
-set that variable — is completely unaffected. The IDE then appears in `app_list` as **DelphiIDE**.
+It is deliberately **not** a command-line switch: `bds.exe` parses its own command line and
+treats arguments it does not recognise as files to open.
 
-### Why an environment variable rather than `/AUTOMATION`
+## Security
 
-The DBi apps gate on the `/AUTOMATION` command-line switch. That would be wrong here: `bds.exe`
-parses its own command line and treats arguments it does not recognise as files to open.
+Loopback only (`127.0.0.1`), and every command must carry a per-session GUID token that is
+written to the discovery file at
+`C:\ProgramData\GITLAK\Automation\<pid>.json`. Another local process cannot drive your IDE
+without reading that file. There is no remote surface at all.
 
-## What it is good for, and what it is not
+That said: **this is a development tool.** Anything that can click buttons and set properties in
+your IDE deserves the same suspicion you would apply to a debugger. It is off by default for that
+reason.
 
-**Good for:** driving menus, actions, dialogs and controls through the live VCL component model.
-That is far more reliable than synthesising keystrokes — coordinate-free, DPI-independent, and it
-cannot type into the wrong window, which is the standing hazard of a `SendKeys` approach.
+## Reading the debugger panes
 
-**Not directly good for:** reading the Local Variables or Watch panes. Those are
-VirtualStringTree based — `app_tree LocalVarsWindow` shows `LocalsTreeView` exposing only
-`Visible`/`Enabled`/`Left`/`Top`/`Width`/`Height` — so `app_get` cannot see cell text.
-
-**But there is a way round it, and it works.** The panes' popup menu items are addressable
-components — `lvCopyName`, `lvCopyValue`, `lvInspect`, `lvWatch`, `lvEvaluateModify`,
-`lvVisualizers`. Select a row, fire `lvCopyValue`, read the clipboard:
+`get` cannot read Local Variables or the Watch window: both are `TVirtualStringTree` and their
+cell text is not a published property. The panes' popup menu items *are* addressable, so the way
+round is to select a row and fire "Copy Value":
 
 ```
-python tools/click.py 300 1335 --activate <ide-pid>     # select the row
-app_click DelphiIDE LocalVarsWindow lvCopyValue          # copy its value
-powershell -c Get-Clipboard                              # 'TBaseThing(Name=base)'
+python tools/read_pane.py 300 1335
+'TBaseThing(Name=base)'
 ```
 
-Verified 2026-08-08 on two different rows, each returning exactly what the pane displayed. So a
-debugger value **can** be had as text rather than as pixels.
+Selecting the row needs a real mouse click, which `tools/click.py` provides.
 
-Selection is the part that needs a real mouse click: `app_click LocalsTreeView` fails with
-`OnClick is not assigned`, selection is not a published property, and keyboard focus will not
-reach the tree. Hence `tools/click.py`.
+### The coordinate trap
 
-### The coordinate trap that cost an hour
-
-Ian runs two 4K monitors at **150%**, so there are two coordinate spaces and they differ by
-exactly 1.5:
+On a scaled display there are two coordinate spaces and they do not match. With two 4K monitors
+at 150%:
 
 | | Space | Size |
 |---|---|---|
-| `CopyFromScreen` screenshots | **physical** (it crops, it does not scale) | 7680x2160 |
+| `CopyFromScreen` screenshots | **physical** — it crops, it does not scale | 7680x2160 |
 | `SetCursorPos` from a DPI-*unaware* process | **virtualised** | 5120x1440 |
 
-Click at a coordinate read off a screenshot without accounting for that and you land two thirds
-of the way to the target, silently — `SendInput` returns success and nothing happens.
-`tools/click.py` declares `PER_MONITOR_AWARE_V2` at startup, which puts `SetCursorPos` into
-physical coordinates so it matches the screenshots 1:1.
+Click a coordinate read off a screenshot without allowing for that and you land two thirds of the
+way to the target — silently, with `SendInput` reporting success. `click.py` declares
+`PER_MONITOR_AWARE_V2` so both spaces are physical.
 
-It also refuses to click if the cursor will not stay where it was put, because a human moving the
-mouse would otherwise take the click in their own window.
+It also refuses to click if the cursor will not stay where it was put, so a human moving the
+mouse does not receive the click.
+
+**Take coordinates from a fresh screenshot every time.** Row positions shift when a node is
+expanded, and a stale coordinate reads a *different row* perfectly happily rather than failing.
+Cross-check with `--name`.
 
 ## Tools
 
 | Tool | Does |
 |---|---|
-| `tools/Start-IDE.ps1` | Launches the IDE the way this machine expects — `/highdpi:unaware`, automation gate set — waits for it to load, and reports whether the server came up. `-NoAutomation` for a clean comparison IDE. |
-| `tools/click.py` | Clicks at a screen coordinate. Read the coordinate-trap note in its docstring before rolling your own. |
-| `tools/read_pane.py` | `python tools/read_pane.py X Y [--pane locals\|watch] [--name]` — selects the row and prints its value. Talks to the automation server directly, so no MCP tooling is needed. |
+| `tools/Start-IDE.ps1` | Launches the IDE with the gate set, waits for it to load, reports whether the server came up. `-NoAutomation` for a clean comparison IDE. |
+| `tools/click.py` | Clicks at a screen coordinate. Read its docstring before rolling your own. |
+| `tools/read_pane.py` | `read_pane.py X Y [--pane locals\|watch] [--name]` — selects the row and prints its value. Speaks the protocol directly; no other tooling needed. |
 
-`read_pane.py` prints a specific complaint rather than an empty string when the copy produced
-nothing, because "no row is selected" and "the value is genuinely blank" look identical
-otherwise. It primes the clipboard with a sentinel first for exactly that reason.
+## Dependencies
 
-**Take the coordinates from a fresh screenshot every time.** Row positions move whenever a node
-is expanded or the pane is resized, and a stale coordinate reads a *different row* perfectly
-happily — it does not fail, it just answers the wrong question. Rows are about 36px apart at
-150%. The cheap guard is to read the name as well as the value: if `--name` says `i` when you
-expected `Base`, you clicked the wrong row.
+Everything ships with Delphi — clone and build, nothing to acquire:
+
+`rtl`, `vcl`, `vclimg` (screenshots), `dbrtl` (the dataset commands), `IndySystem` + `IndyCore`
+(the listener). Notably **not** `designide`: nothing here touches the ToolsAPI, which is also why
+it is not tied to any particular IDE version's OTA.
+
+## Provenance
+
+The server unit is vendored from GITLAK Software's internal library, where it was written to
+drive VCL applications for unattended UI testing. Driving the IDE turned out to need no changes
+at all: the IDE is a VCL application, and the unit only ever knew about `Screen.CustomForms` and
+published properties.
+
+It is renamed here (`gllIdeAutomation.Server`) rather than copied verbatim, because a Delphi unit
+may exist in only one loaded package — a copy under the original name could not load alongside
+the library it came from.
+
+## Documentation
+
+- [docs/Users Guide.md](docs/Users%20Guide.md) - the protocol, the command reference, worked
+  examples, and the scaling trap that catches everyone who clicks.
+- [docs/HELP.md](docs/HELP.md) - short answers for when it is not working.
+
+## Layout
+
+```
+gllIdeAutomation.dpk / .dproj   the design-time package
+src/gllIdeAutomation.Server     the automation server (vendored)
+src/gllIdeAutomation.Starter    ~30 lines: the gate, and the call to Start
+tools/                          launcher, clicker, pane reader
+```
 
 ## Keeping it working
 
-- **Rebuild this package whenever `GITLAKLib370.bpl` is rebuilt.** It is in `requires`, so a
-  GITLAKLib rebuild can leave this one unable to load — with the only symptom being that the IDE
-  stops appearing in `app_list`.
-- **Rebuild and re-register on a RAD Studio upgrade.** The BPL is version-suffixed and the
-  `Known Packages x64` key is per-version.
-- `GITLAK_IDE_AUTOMATION=1` is set permanently at user scope, so a Start-menu launch is drivable
-  too. `Start-IDE.ps1` sets it for its child anyway, so it still works if that is ever undone.
-
-## Safety
-
-- **Gated off by default** — see above.
-- **`initialization` cannot throw.** An exception escaping a design-time package's initialisation
-  is reported to the user as a package load failure, for a facility they did not ask for. A port
-  clash or an unwritable discovery directory must cost the automation server, never the IDE.
-- **`finalization` cannot throw either**, so a failure while closing cannot become a shutdown hang.
-- **GITLAKLib is not modified.** That library carries a v4.0.0 compatibility commitment and its
-  source is held by an outside developer under NDA; this package only *requires* it.
-
-## Uninstalling
-
-Remove the value from `Known Packages x64` (or untick it in Component > Install Packages) and
-restart the IDE. Nothing else is left behind — the server writes a discovery file under
-`C:\ProgramData\GITLAK\Automation\` while running and deletes it on clean shutdown.
+- **Rebuild and re-register after a RAD Studio upgrade.** The BPL is version-suffixed and the
+  registration is per-version.
+- The starter swallows every exception in `initialization` and `finalization`. An exception
+  escaping a design-time package's initialisation is reported to the user as a package load
+  failure, for a facility they did not ask for — a port clash must cost the automation server,
+  never the IDE.
