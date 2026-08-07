@@ -82,6 +82,34 @@ physical coordinates so it matches the screenshots 1:1.
 It also refuses to click if the cursor will not stay where it was put, because a human moving the
 mouse would otherwise take the click in their own window.
 
+## Tools
+
+| Tool | Does |
+|---|---|
+| `tools/Start-IDE.ps1` | Launches the IDE the way this machine expects — `/highdpi:unaware`, automation gate set — waits for it to load, and reports whether the server came up. `-NoAutomation` for a clean comparison IDE. |
+| `tools/click.py` | Clicks at a screen coordinate. Read the coordinate-trap note in its docstring before rolling your own. |
+| `tools/read_pane.py` | `python tools/read_pane.py X Y [--pane locals\|watch] [--name]` — selects the row and prints its value. Talks to the automation server directly, so no MCP tooling is needed. |
+
+`read_pane.py` prints a specific complaint rather than an empty string when the copy produced
+nothing, because "no row is selected" and "the value is genuinely blank" look identical
+otherwise. It primes the clipboard with a sentinel first for exactly that reason.
+
+**Take the coordinates from a fresh screenshot every time.** Row positions move whenever a node
+is expanded or the pane is resized, and a stale coordinate reads a *different row* perfectly
+happily — it does not fail, it just answers the wrong question. Rows are about 36px apart at
+150%. The cheap guard is to read the name as well as the value: if `--name` says `i` when you
+expected `Base`, you clicked the wrong row.
+
+## Keeping it working
+
+- **Rebuild this package whenever `GITLAKLib370.bpl` is rebuilt.** It is in `requires`, so a
+  GITLAKLib rebuild can leave this one unable to load — with the only symptom being that the IDE
+  stops appearing in `app_list`.
+- **Rebuild and re-register on a RAD Studio upgrade.** The BPL is version-suffixed and the
+  `Known Packages x64` key is per-version.
+- `GITLAK_IDE_AUTOMATION=1` is set permanently at user scope, so a Start-menu launch is drivable
+  too. `Start-IDE.ps1` sets it for its child anyway, so it still works if that is ever undone.
+
 ## Safety
 
 - **Gated off by default** — see above.
