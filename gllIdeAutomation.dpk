@@ -1,0 +1,18 @@
+﻿package gllIdeAutomation;
+
+{$R *.res}
+{$DESCRIPTION 'GITLAK IDE Automation (gated by GITLAK_IDE_AUTOMATION=1)'}
+{$LIBSUFFIX AUTO}
+{$DESIGNONLY}
+{$IMPLICITBUILD ON}
+
+requires
+  rtl,
+  vcl,
+  designide,
+  GITLAKLib;
+
+contains
+  u_gllIdeAutomationStarter in 'u_gllIdeAutomationStarter.pas';
+
+end.
