@@ -113,7 +113,7 @@ Cross-check with `--name`.
 | `tools/Start-IDE.ps1` | Launches the IDE with the gate set, waits for it to load, reports whether the server came up. Finds the newest installed IDE from the registry; `-Version 22.0` or `-BdsPath` to choose another. `-NoAutomation` for a clean comparison IDE. |
 | `tools/click.py` | Clicks at a screen coordinate. Read its docstring before rolling your own. |
 | `tools/read_pane.py` | `read_pane.py X Y [--pane locals\|watch] [--name]` — selects the row and prints its value. Speaks the protocol directly; no other tooling needed. |
-| `tools/bump-build.py` | `bump-build.py [project.dproj] [--show]` — increments the build number. Needed only for command-line and CI builds; the IDE does it itself. |
+| `tools/bump-build.py` | `bump-build.py [version.rc] [--show]` — increments the build number in `gllIdeAutomationVersion.rc`, keeping the numeric tuple and the display string in step. |
 
 ## Dependencies
 
@@ -167,6 +167,7 @@ or use the package — only to regenerate those pages.
 
 ```
 gllIdeAutomation.dpk / .dproj   the design-time package
+gllIdeAutomationVersion.rc      the version, defined once
 src/gllIdeAutomation.Server     the automation server (vendored)
 src/gllIdeAutomation.Starter    ~30 lines: the gate, and the call to Start
 tools/                          launcher, clicker, pane reader, build bumper
@@ -185,10 +186,16 @@ tools/                          launcher, clicker, pane reader, build bumper
   (Get-Item "$env:PUBLIC\Documents\Embarcadero\Studio\37.0\Bpl\Win64\gllIdeAutomation370.bpl").VersionInfo.FileVersion
   ```
 
-  The IDE advances the number on each **Build** (not Compile). MSBuild does not: the Delphi
-  targets try, then give up with `Failed to increment Build Number. Check the project
-  configuration.` and leave it where it was — so a command-line or CI build stamps the same number
-  forever unless you run `python tools/bump-build.py` first.
+  The version is defined in exactly one place, `gllIdeAutomationVersion.rc`, and nothing advances
+  it automatically — run `python tools/bump-build.py` when you want a new number.
+
+  **Why a resource script rather than the IDE's own version fields.** Delphi's `VerInfo_*`
+  properties cannot be reduced to a single definition: the `.dproj` holds a Base copy plus one per
+  build configuration, and deleting the per-configuration copy only makes the next build of that
+  configuration write it back. Worse, the IDE's auto-increment advances `FileVersion` in that copy
+  on each Build while leaving `ProductVersion` behind — so the mechanism meant to manage the
+  version is itself capable of shipping a BPL whose two version strings disagree. The `.dproj` now
+  sets `VerInfo_IncludeVerInfo=false`, and the `.rc` is the only definition.
 - The starter swallows every exception in `initialization` and `finalization`. An exception
   escaping a design-time package's initialisation is reported to the user as a package load
   failure, for a facility they did not ask for — a port clash must cost the automation server,

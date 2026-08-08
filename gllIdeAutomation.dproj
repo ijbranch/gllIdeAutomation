@@ -55,13 +55,7 @@
     <DesignOnlyPackage>true</DesignOnlyPackage>
     <GenDll>true</GenDll>
     <GenPackage>true</GenPackage>
-    <VerInfo_AutoIncVersion>true</VerInfo_AutoIncVersion>
-    <VerInfo_IncludeVerInfo>true</VerInfo_IncludeVerInfo>
-    <VerInfo_MajorVer>1</VerInfo_MajorVer>
-    <VerInfo_MinorVer>0</VerInfo_MinorVer>
-    <VerInfo_Release>0</VerInfo_Release>
-    <VerInfo_Build>1</VerInfo_Build>
-    <VerInfo_Keys>CompanyName=GITLAK Software;FileDescription=$(MSBuildProjectName);FileVersion=1.0.0.1;InternalName=;LegalCopyright=Copyright (c) 2016-2026 Ian Branch (GITLAK Software) - MIT;LegalTrademarks=;OriginalFilename=;ProgramID=com.embarcadero.$(MSBuildProjectName);ProductName=$(MSBuildProjectName);ProductVersion=1.0.0.1;Comments=</VerInfo_Keys>
+    <VerInfo_IncludeVerInfo>false</VerInfo_IncludeVerInfo>
     <VerInfo_Locale>3081</VerInfo_Locale>
   </PropertyGroup>
   <PropertyGroup Condition="'$(Base_Win32)'!=''">
@@ -87,8 +81,6 @@
   </PropertyGroup>
   <PropertyGroup Condition="'$(Cfg_1_Win64)'!=''">
     <DCC_RemoteDebug>false</DCC_RemoteDebug>
-    <VerInfo_Build>1</VerInfo_Build>
-    <VerInfo_Keys>CompanyName=GITLAK Software;FileDescription=gllIdeAutomation;FileVersion=1.0.0.1;InternalName=;LegalCopyright=Copyright (c) 2016-2026 Ian Branch (GITLAK Software) - MIT;LegalTrademarks=;OriginalFilename=;ProgramID=com.embarcadero.gllIdeAutomation;ProductName=gllIdeAutomation;ProductVersion=1.0.0.1;Comments=</VerInfo_Keys>
   </PropertyGroup>
   <PropertyGroup Condition="'$(Cfg_2)'!=''">
     <DCC_DebugInformation>0</DCC_DebugInformation>
@@ -106,6 +98,9 @@
     <DCCReference Include="dbrtl.dcp" />
     <DCCReference Include="IndySystem.dcp" />
     <DCCReference Include="IndyCore.dcp" />
+    <RcCompile Include="gllIdeAutomationVersion.rc">
+      <Form>gllIdeAutomationVersion.res</Form>
+    </RcCompile>
     <DCCReference Include="src\gllIdeAutomation.Server.pas" />
     <DCCReference Include="src\gllIdeAutomation.Starter.pas" />
     <BuildConfiguration Include="Base">

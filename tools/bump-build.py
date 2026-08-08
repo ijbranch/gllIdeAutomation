@@ -1,60 +1,56 @@
 """Increment the project's build number.
 
-usage: python tools/bump-build.py [project.dproj] [--show]
+usage: python tools/bump-build.py [version.rc] [--show]
 
-The IDE increments the build number itself when `VerInfo_AutoIncVersion` is true — but only on
-**Build**, not Compile, and only from inside the IDE. Under MSBuild the Delphi targets attempt the
-increment, fail, and carry on - "Failed to increment Build Number. Check the project
-configuration." - so a command-line or CI build would otherwise stamp the same number forever.
-Run this first in those builds.
+The version lives in exactly one file, gllIdeAutomationVersion.rc, and this edits that file.
 
-It updates BOTH places Delphi keeps the number, which is the thing people get wrong:
+It was not always so. Delphi's own mechanism - the VerInfo_* properties in the .dproj - cannot be
+reduced to a single definition: there is a Base copy and one per build configuration, and deleting
+the per-configuration copy only makes the next build of that configuration write it back. The IDE
+then advances FileVersion in that copy on Build while leaving ProductVersion behind, so the two
+strings in a shipped BPL can disagree. The .dproj now sets VerInfo_IncludeVerInfo=false and the
+resource script is the only source of the version.
 
-  <VerInfo_Build>            the numeric field the version resource is built from
-  FileVersion=  /  ProductVersion=   inside <VerInfo_Keys>, the displayed strings
-
-Let those disagree and the file's Details tab shows one version while the resource carries
-another — which is worse than not versioning at all, because it looks authoritative.
-
-Both live in the .dproj more than once: there is a Base copy, and the build materialises a further
-copy per build configuration. You cannot keep just one - delete the per-config copy and the next
-build of that configuration writes it straight back. Every occurrence is therefore rewritten,
-because the one that gets compiled is whichever config you happen to build.
-
-That the two can drift is not hypothetical: the IDE's own auto-increment advances FileVersion in
-the per-config copy and leaves ProductVersion behind, so a Build from the IDE alone is enough to
-produce a BPL whose two version strings disagree.
+Inside the .rc the number still appears twice, because a VERSIONINFO resource needs it both as a
+comma-separated numeric tuple (FILEVERSION) and as a display string (VALUE "FileVersion"). They sit
+adjacent in one define block, and this script rewrites both together so they cannot drift.
 """
 import re
 import sys
 
-DEFAULT_PROJECT = "gllIdeAutomation.dproj"
+DEFAULT_RC = "gllIdeAutomationVersion.rc"
+
+FIELDS = ("VER_MAJOR", "VER_MINOR", "VER_RELEASE", "VER_BUILD")
 
 
 def read(path):
-    # newline='' so the CRLF endings already in the file survive the round trip. Without it,
-    # Python's universal-newline translation hands back '\n' and the file is rewritten LF-only.
+    # newline='' so the CRLF endings already in the file survive the round trip.
     with open(path, encoding="utf-8", newline="") as f:
         return f.read()
 
 
 def write(path, text):
-    # newline='' again, so nothing is translated on the way out either. Any BOM is carried
-    # through as an ordinary character, which keeps the file byte-identical apart from the edit.
     with open(path, "w", encoding="utf-8", newline="") as f:
         f.write(text)
 
 
-def field(text, tag, default="0"):
-    """The highest value of <tag> in the file - the copies should agree, but if they have drifted
-    the largest is the only safe basis for the next number."""
-    found = [int(v) for v in re.findall(rf"<{tag}>(\d+)</{tag}>", text)]
-    return max(found) if found else int(default)
+def define(text, name):
+    """The value of a #define, or None when it is missing."""
+    # \r? before $, because in MULTILINE the anchor sits after the CR of a CRLF ending: match it
+    # explicitly, and on substitution keep it in a group so the ending is not rewritten to LF.
+    m = re.search(r"^#define[ \t]+%s[ \t]+(\d+)[ \t]*\r?$" % name, text, re.MULTILINE)
+    return int(m.group(1)) if m else None
+
+
+def version_string(text):
+    """The VER_STRING literal, without its trailing NUL escape."""
+    m = re.search(r'^#define[ \t]+VER_STRING[ \t]+"([\d.]+)\\0"[ \t]*\r?$', text, re.MULTILINE)
+    return m.group(1) if m else None
 
 
 def main():
     args = [a for a in sys.argv[1:] if not a.startswith("--")]
-    path = args[0] if args else DEFAULT_PROJECT
+    path = args[0] if args else DEFAULT_RC
     show_only = "--show" in sys.argv
 
     try:
@@ -63,32 +59,42 @@ def main():
         print(f"cannot read {path}: {e}")
         return 2
 
-    major = field(text, "VerInfo_MajorVer", "1")
-    minor = field(text, "VerInfo_MinorVer")
-    release = field(text, "VerInfo_Release")
-    build = field(text, "VerInfo_Build")
+    parts = [define(text, f) for f in FIELDS]
+    if any(p is None for p in parts):
+        missing = [f for f, p in zip(FIELDS, parts) if p is None]
+        print(f"{path} is missing: {', '.join(missing)}")
+        return 1
+
+    major, minor, release, build = parts
+    current = f"{major}.{minor}.{release}.{build}"
+
+    # The tuple and the display string are meant to agree. If they do not, say so rather than
+    # quietly picking one - a disagreement here is the exact fault this file exists to prevent.
+    declared = version_string(text)
+    if declared is None:
+        print('no #define VER_STRING "n.n.n.n\\0" found')
+        return 1
+    if declared != current:
+        print(f"WARNING: VER_STRING is {declared} but the numeric defines say {current}")
 
     if show_only:
-        print(f"{major}.{minor}.{release}.{build}")
+        print(current)
         return 0
 
     new_build = build + 1
     version = f"{major}.{minor}.{release}.{new_build}"
 
-    # Every occurrence, not just the first: the config-specific copy is the one that gets built.
-    text, n = re.subn(r"<VerInfo_Build>\d+</VerInfo_Build>",
-                      f"<VerInfo_Build>{new_build}</VerInfo_Build>", text)
-    if n == 0:
-        print("no <VerInfo_Build> element found - is VerInfo_IncludeVerInfo enabled?")
+    text, n = re.subn(r"^(#define[ \t]+VER_BUILD[ \t]+)\d+([ \t]*\r?)$",
+                      lambda m: f"{m.group(1)}{new_build}{m.group(2)}", text, flags=re.MULTILINE)
+    text, s = re.subn(r'^(#define[ \t]+VER_STRING[ \t]+")[\d.]+(\\0"[ \t]*\r?)$',
+                      lambda m: f"{m.group(1)}{version}{m.group(2)}", text, flags=re.MULTILINE)
+
+    if n != 1 or s != 1:
+        print(f"refusing to write: matched {n} VER_BUILD and {s} VER_STRING, expected 1 of each")
         return 1
 
-    # Keep the displayed strings in step with the numeric fields.
-    text, nf = re.subn(r"FileVersion=\d+\.\d+\.\d+\.\d+", f"FileVersion={version}", text)
-    text, np = re.subn(r"ProductVersion=\d+\.\d+\.\d+\.\d+", f"ProductVersion={version}", text)
-
     write(path, text)
-    print(f"{major}.{minor}.{release}.{build}  ->  {version}"
-          f"   ({n} VerInfo_Build, {nf} FileVersion, {np} ProductVersion)")
+    print(f"{current}  ->  {version}")
     return 0
 
 

@@ -34,9 +34,9 @@ needs Win32. A design-time package must match the IDE loading it, and the wrong 
 loads.
 
 The BPL carries version information, which is how you tell later which build an IDE has loaded.
-Building from the IDE advances the number for you; building from the command line does not —
-MSBuild attempts the increment, warns `Failed to increment Build Number` and leaves it alone — so
-run `python tools/bump-build.py` first if you want the builds to be distinguishable.
+It comes from `gllIdeAutomationVersion.rc` — the one place the version is defined — and nothing
+advances it automatically, in the IDE or out of it. Run `python tools/bump-build.py` first if you
+want two builds to be distinguishable.
 
 **2. Install** — Component > Install Packages > Add, and choose the BPL.
 

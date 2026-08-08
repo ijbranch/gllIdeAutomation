@@ -33,9 +33,9 @@ Almost always one of:
   ```
 
   If that number has not moved since your last change, the build did not reach the BPL the IDE
-  loads. Note the number only advances on **Build**, not Compile — and not at all under MSBuild,
-  which warns `Failed to increment Build Number` and carries on; run `python tools/bump-build.py`
-  first in that case.
+  loads. Nothing advances that number on its own — it lives in `gllIdeAutomationVersion.rc` and
+  changes only when you run `python tools/bump-build.py`. So two builds you did not bump between
+  will legitimately report the same version.
 - **The IDE was launched from somewhere that does not carry the environment variable** — a
   shortcut, a file association, another tool launching it.
 - **A stale discovery file** from an IDE that died without cleaning up. The file names itself

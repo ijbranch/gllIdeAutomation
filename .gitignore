@@ -29,3 +29,7 @@ __pycache__/
 
 # Generated documentation. The .diproj that produces it IS tracked.
 build/
+
+# Compiled from gllIdeAutomationVersion.rc at build time. The .rc IS tracked and
+# is the single definition of the version; this is just its output.
+gllIdeAutomationVersion.res

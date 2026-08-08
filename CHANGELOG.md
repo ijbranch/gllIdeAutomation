@@ -26,22 +26,16 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   is unaffected. **Why not a command-line switch:** `bds.exe` parses its own command
   line and treats unrecognised arguments as files to open. (2026-08-08) —
   `src/gllIdeAutomation.Starter.pas`
-- Version information on the BPL, starting at 1.0.0.1, with `VerInfo_AutoIncVersion` so the IDE
-  advances it on each Build. **Why:** the BPL is installed into a shared IDE, so when one
-  misbehaves the first question is which build is loaded — and an unversioned DLL cannot answer
-  it. Documented with the one-line command that reads it back. (2026-08-08) —
-  `gllIdeAutomation.dproj`, `gllIdeAutomation.res`, `README.md`, `docs/HELP.md`,
+- Version information on the BPL, defined once in `gllIdeAutomationVersion.rc` and linked by the
+  `.dpk`. **Why:** the BPL is installed into a shared IDE, so when one misbehaves the first
+  question is which build is loaded — and an unversioned DLL cannot answer it. Documented with the
+  one-line command that reads it back. (2026-08-08) — `gllIdeAutomationVersion.rc`,
+  `gllIdeAutomation.dpk`, `gllIdeAutomation.dproj`, `README.md`, `docs/HELP.md`,
   `docs/Users Guide.md`
-- `tools/bump-build.py` — increments the build number from the command line. **Why:**
-  `VerInfo_AutoIncVersion` is honoured by the IDE on Build only. Under MSBuild the Delphi targets
-  attempt the increment, fail with `Failed to increment Build Number. Check the project
-  configuration.` and carry on, so a command-line or CI build stamps the same number forever
-  (verified two ways — consecutive builds leave the number at 1, and the warning appears at
-  `/v:minimal` where the default verbosity hides it; the `.dproj` is not read-only). It rewrites every copy of both the numeric
-  `<VerInfo_Build>` and the `FileVersion=`/`ProductVersion=` strings, since MSBuild materialises a
-  further copy of each per build configuration and the one that gets compiled is whichever config
-  you build. (2026-08-08) — `tools/bump-build.py`, `README.md`, `docs/HELP.md`,
-  `docs/Users Guide.md`
+- `tools/bump-build.py` — increments the build number in the `.rc`, rewriting the numeric
+  `VER_BUILD` and the display `VER_STRING` together so they cannot drift, and refusing to write
+  unless it matched exactly one of each. (2026-08-08) — `tools/bump-build.py`, `README.md`,
+  `docs/HELP.md`, `docs/Users Guide.md`
 - `$LIBSUFFIX` is now chosen by `CompilerVersion`, so the package builds on 10.3 Rio through 13
   Florence rather than 12 and later only. **Why:** `{$LIBSUFFIX AUTO}` is itself a 12-and-later
   feature, so on an older IDE the directive that was meant to supply the suffix was the thing that
@@ -55,6 +49,16 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Changed
 
+- The version moved out of the `.dproj`'s `VerInfo_*` properties and into a resource script,
+  `gllIdeAutomationVersion.rc`, with `VerInfo_IncludeVerInfo=false`. **Why:** Delphi's mechanism
+  cannot be reduced to one definition — the `.dproj` keeps a Base copy plus one per build
+  configuration, and deleting the per-configuration copy only makes the next build of that
+  configuration write it back, byte for byte. The IDE's auto-increment then advances `FileVersion`
+  in that copy on Build while leaving `ProductVersion` behind, so the facility meant to manage the
+  version is itself capable of shipping a BPL whose two version strings disagree. Verified after
+  the move: building both configurations regenerates nothing, and exactly one file in the repo
+  defines a version. (2026-08-08) — `gllIdeAutomationVersion.rc`, `gllIdeAutomation.dpk`,
+  `gllIdeAutomation.dproj`, `.gitignore`
 - `tools/Start-IDE.ps1` finds the IDE in the registry (`Software\Embarcadero\BDS\<ver>\RootDir`,
   HKCU then HKLM) instead of hard-coding one install path, preferring `bin64\bds.exe` where a
   version ships one. `-Version` and `-BdsPath` override it. **Why:** the path it hard-coded was

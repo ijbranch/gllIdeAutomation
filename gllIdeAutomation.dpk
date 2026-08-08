@@ -1,6 +1,7 @@
 ﻿package gllIdeAutomation;
 
 {$R *.res}
+{$R 'gllIdeAutomationVersion.res' 'gllIdeAutomationVersion.rc'}
 {$DESCRIPTION 'IDE Automation (gated by GITLAK_IDE_AUTOMATION=1)'}
 {$IF CompilerVersion >= 36.0}          // 12 Athens and later
   {$LIBSUFFIX AUTO}
