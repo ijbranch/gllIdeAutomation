@@ -12,6 +12,11 @@ error-prone. This makes the IDE inspectable instead.
 
 Delphi **10.3 Rio and later**, Win32 or Win64. MIT licensed.
 
+Fair warning on that range: it is what the source targets — inline variables set the 10.3 floor,
+and the `$LIBSUFFIX` selection covers 10.3 through 13 — but **13 Florence is the only version it
+has actually been built on**, because it is the only one I have. If you try it on an older IDE I
+would be glad to hear how it went, particularly whether the package suffix comes out right.
+
 ## What you can do with it
 
 ```
@@ -105,7 +110,7 @@ Cross-check with `--name`.
 
 | Tool | Does |
 |---|---|
-| `tools/Start-IDE.ps1` | Launches the IDE with the gate set, waits for it to load, reports whether the server came up. `-NoAutomation` for a clean comparison IDE. |
+| `tools/Start-IDE.ps1` | Launches the IDE with the gate set, waits for it to load, reports whether the server came up. Finds the newest installed IDE from the registry; `-Version 22.0` or `-BdsPath` to choose another. `-NoAutomation` for a clean comparison IDE. |
 | `tools/click.py` | Clicks at a screen coordinate. Read its docstring before rolling your own. |
 | `tools/read_pane.py` | `read_pane.py X Y [--pane locals\|watch] [--name]` — selects the row and prints its value. Speaks the protocol directly; no other tooling needed. |
 | `tools/bump-build.py` | `bump-build.py [project.dproj] [--show]` — increments the build number. Needed only for command-line and CI builds; the IDE does it itself. |
@@ -133,7 +138,8 @@ Issues and patches welcome. Two things worth knowing first:
 - `src/gllIdeAutomation.Server.pas` is **vendored** from the library described below, so a fix
   here ideally wants to go upstream too. Nothing keeps the two copies in step automatically.
 - Keep it compiling on **10.3 Rio**. The inline variables set that floor already; please don't
-  raise it without a good reason.
+  raise it without a good reason. Only 13 Florence is built here, so a report that it does or does
+  not compile on an older IDE is genuinely useful — more so than most patches.
 
 ## Provenance
 
