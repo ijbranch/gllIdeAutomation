@@ -148,6 +148,11 @@ Issues and patches welcome. Two things worth knowing first:
 - Keep it compiling on **10.3 Rio**. The inline variables set that floor already; please don't
   raise it without a good reason. Only 13 Florence is built here, so a report that it does or does
   not compile on an older IDE is genuinely useful — more so than most patches.
+- **Rebuild with the package unticked or the IDE closed.** An IDE with it installed holds both the
+  `.bpl` and the `.dcp` open, so a build cannot replace them and stops with two
+  `F2039 Could not create output file` errors — from the command line as much as from inside the
+  IDE. Untick it in Component > Install Packages while you work, or build headlessly and re-tick to
+  try the result.
 
 ## Provenance
 

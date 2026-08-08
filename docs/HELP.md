@@ -91,6 +91,18 @@ reply waits for the handler to return. Use `mode=message` on `click` for button-
 which posts the click and replies immediately, then answer the dialog with the `dialogs`
 command.
 
+## Building the package fails with two errors
+
+If the IDE has the package installed, it holds both build outputs open — `gllIdeAutomation370.bpl`
+(the number is the version suffix) and `gllIdeAutomation.dcp`. A build cannot replace a file that
+is loaded, so you get two `F2039 Could not create output file` errors in the Messages pane, one per
+output. The count is the giveaway: two errors, no compilation errors, and the compiler reports the
+unit count normally.
+
+Either untick the package in **Component > Install Packages**, build, and re-tick it; or build from
+the command line with the IDE closed. The same lock is why an MSBuild or `dcc64` build fails while
+an IDE has the package loaded — it is not specific to building from inside the IDE.
+
 ## Should I leave this installed?
 
 The package is inert unless the environment variable is set, so leaving it installed costs

@@ -4,6 +4,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### Added
+
+- Documented that a build fails with two `F2039 Could not create output file` errors when an IDE
+  has the package installed, because it holds both the `.bpl` and the `.dcp` open — and that this
+  applies to command-line builds too, not just builds from inside the IDE. **Why:** it is the
+  first wall anyone changing the source hits, the error text does not mention the cause, and the
+  error *count* is the diagnostic. Reproduced twice. (2026-08-08) — `docs/HELP.md`, `README.md`
+
 ## [1.0.1] - 2026-08-08
 
 The release the announcement points at. Delphi 13 Florence, Win32 or Win64, MIT licensed.
