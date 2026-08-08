@@ -33,9 +33,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   `gllIdeAutomation.dproj`, `gllIdeAutomation.res`, `README.md`, `docs/HELP.md`,
   `docs/Users Guide.md`
 - `tools/bump-build.py` — increments the build number from the command line. **Why:**
-  `VerInfo_AutoIncVersion` is honoured by the IDE on Build only; MSBuild ignores it, so a
-  command-line or CI build stamps the same number forever (verified here — two consecutive
-  `build_project` runs left the number at 1). It rewrites every copy of both the numeric
+  `VerInfo_AutoIncVersion` is honoured by the IDE on Build only. Under MSBuild the Delphi targets
+  attempt the increment, fail with `Failed to increment Build Number. Check the project
+  configuration.` and carry on, so a command-line or CI build stamps the same number forever
+  (verified two ways — consecutive builds leave the number at 1, and the warning appears at
+  `/v:minimal` where the default verbosity hides it; the `.dproj` is not read-only). It rewrites every copy of both the numeric
   `<VerInfo_Build>` and the `FileVersion=`/`ProductVersion=` strings, since MSBuild materialises a
   further copy of each per build configuration and the one that gets compiled is whichever config
   you build. (2026-08-08) — `tools/bump-build.py`, `README.md`, `docs/HELP.md`,
@@ -86,3 +88,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - The two entries above naming the starter unit called it `u_gllIdeAutomationStarter.pas`, which
   has never existed here — it is `src/gllIdeAutomation.Starter.pas`. (2026-08-08) —
   `CHANGELOG.md`
+- The docs said MSBuild "ignores" `VerInfo_AutoIncVersion`. It does not ignore it — it tries and
+  fails, which is only visible below the default MSBuild verbosity. Right outcome, wrong reason,
+  in four places. (2026-08-08) — `README.md`, `docs/HELP.md`, `docs/Users Guide.md`,
+  `tools/bump-build.py`
+- The note on why every copy of the version is rewritten now records two things that were
+  measured rather than assumed: the per-configuration copy cannot be removed — delete it and the
+  next build of that configuration writes it back, byte for byte — and the IDE's own
+  auto-increment advances `FileVersion` while leaving `ProductVersion` behind, so a Build from
+  the IDE is by itself enough to produce a BPL whose two version strings disagree. (2026-08-08) —
+  `tools/bump-build.py`

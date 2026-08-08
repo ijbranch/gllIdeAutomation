@@ -3,9 +3,10 @@
 usage: python tools/bump-build.py [project.dproj] [--show]
 
 The IDE increments the build number itself when `VerInfo_AutoIncVersion` is true — but only on
-**Build**, not Compile, and only from inside the IDE. MSBuild ignores the setting entirely, so a
-command-line or CI build would otherwise stamp the same number forever. Run this first in those
-builds.
+**Build**, not Compile, and only from inside the IDE. Under MSBuild the Delphi targets attempt the
+increment, fail, and carry on - "Failed to increment Build Number. Check the project
+configuration." - so a command-line or CI build would otherwise stamp the same number forever.
+Run this first in those builds.
 
 It updates BOTH places Delphi keeps the number, which is the thing people get wrong:
 
@@ -15,9 +16,14 @@ It updates BOTH places Delphi keeps the number, which is the thing people get wr
 Let those disagree and the file's Details tab shows one version while the resource carries
 another — which is worse than not versioning at all, because it looks authoritative.
 
-Both live in the .dproj more than once: there is a Base copy, and MSBuild materialises a further
-copy per build configuration the first time it builds one. Every occurrence is rewritten, because
-the one that gets compiled is whichever config you happen to build.
+Both live in the .dproj more than once: there is a Base copy, and the build materialises a further
+copy per build configuration. You cannot keep just one - delete the per-config copy and the next
+build of that configuration writes it straight back. Every occurrence is therefore rewritten,
+because the one that gets compiled is whichever config you happen to build.
+
+That the two can drift is not hypothetical: the IDE's own auto-increment advances FileVersion in
+the per-config copy and leaves ProductVersion behind, so a Build from the IDE alone is enough to
+produce a BPL whose two version strings disagree.
 """
 import re
 import sys

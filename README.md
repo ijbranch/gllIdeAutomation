@@ -185,9 +185,10 @@ tools/                          launcher, clicker, pane reader, build bumper
   (Get-Item "$env:PUBLIC\Documents\Embarcadero\Studio\37.0\Bpl\Win64\gllIdeAutomation370.bpl").VersionInfo.FileVersion
   ```
 
-  The IDE advances the number on each **Build** (not Compile). MSBuild ignores
-  `VerInfo_AutoIncVersion` entirely, so a command-line or CI build stamps the same number forever
-  unless you run `python tools/bump-build.py` first.
+  The IDE advances the number on each **Build** (not Compile). MSBuild does not: the Delphi
+  targets try, then give up with `Failed to increment Build Number. Check the project
+  configuration.` and leave it where it was — so a command-line or CI build stamps the same number
+  forever unless you run `python tools/bump-build.py` first.
 - The starter swallows every exception in `initialization` and `finalization`. An exception
   escaping a design-time package's initialisation is reported to the user as a package load
   failure, for a facility they did not ask for — a port clash must cost the automation server,

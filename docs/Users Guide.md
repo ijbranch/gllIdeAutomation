@@ -35,8 +35,8 @@ loads.
 
 The BPL carries version information, which is how you tell later which build an IDE has loaded.
 Building from the IDE advances the number for you; building from the command line does not —
-MSBuild ignores `VerInfo_AutoIncVersion` — so run `python tools/bump-build.py` first if you want
-the builds to be distinguishable.
+MSBuild attempts the increment, warns `Failed to increment Build Number` and leaves it alone — so
+run `python tools/bump-build.py` first if you want the builds to be distinguishable.
 
 **2. Install** — Component > Install Packages > Add, and choose the BPL.
 
