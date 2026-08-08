@@ -4,6 +4,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [1.0.1] - 2026-08-08
+
+The release the announcement points at. Delphi 13 Florence, Win32 or Win64, MIT licensed.
+
 ### Added
 
 - Initial package: starts the automation server inside the Delphi IDE, so external agent tools can drive the IDE through the live VCL component model instead of
@@ -41,7 +45,6 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   feature, so on an older IDE the directive that was meant to supply the suffix was the thing that
   broke the build. Anything older than 10.3 stops with a `{$MESSAGE FATAL}` naming the requirement
   instead of failing obscurely further in. (2026-08-08) — `gllIdeAutomation.dpk`, `README.md`
-
 - `gllIdeAutomation.diproj` — the DocInsight project that builds the API documentation from the
   units' XML doc comments. It carries only relative paths, so it works from any clone. The
   generated `build/docs` output is not tracked. (2026-08-08) — `gllIdeAutomation.diproj`,
@@ -111,3 +114,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   auto-increment advances `FileVersion` while leaving `ProductVersion` behind, so a Build from
   the IDE is by itself enough to produce a BPL whose two version strings disagree. (2026-08-08) —
   `tools/bump-build.py`
+
+## [1.0.0] - 2026-08-08
+
+Tagged before the fixes above and superseded within the day — **use 1.0.1**. It carried no version
+information on the BPL, a `tools/Start-IDE.ps1` hard-coded to one Delphi install path, and three
+invisible control characters in a doc comment that stopped the documentation building. Left in
+place rather than moved, because it was already published and genuinely was that code.
+
+[Unreleased]: https://codeberg.org/GITLAK/gllIdeAutomation/compare/v1.0.1...main
+[1.0.1]: https://codeberg.org/GITLAK/gllIdeAutomation/src/tag/v1.0.1
+[1.0.0]: https://codeberg.org/GITLAK/gllIdeAutomation/src/tag/v1.0.0

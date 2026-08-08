@@ -11,6 +11,8 @@ Variables: none of that is visible to the compiler, and reading it off screensho
 error-prone. This makes the IDE inspectable instead.
 
 Delphi **10.3 Rio and later**, Win32 or Win64. MIT licensed.
+Current release: **1.0.1** — see [CHANGELOG.md](CHANGELOG.md). (1.0.0 was tagged earlier the same
+day and superseded within hours; take 1.0.1.)
 
 Fair warning on that range: it is what the source targets — inline variables set the 10.3 floor,
 and the `$LIBSUFFIX` selection covers 10.3 through 13 — but **13 Florence is the only version it

@@ -21,9 +21,9 @@
 
 #define VER_MAJOR   1
 #define VER_MINOR   0
-#define VER_RELEASE 0
-#define VER_BUILD   2
-#define VER_STRING  "1.0.0.2\0"
+#define VER_RELEASE 1
+#define VER_BUILD   0
+#define VER_STRING  "1.0.1.0\0"
 
 /* 1 is VS_VERSION_INFO. Spelled numerically so this compiles without
    windows.h, which the Delphi resource compiler does not reliably provide. */
