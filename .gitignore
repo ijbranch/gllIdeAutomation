@@ -26,3 +26,6 @@ desktop.ini
 # Python
 __pycache__/
 *.pyc
+
+# Generated documentation. The .diproj that produces it IS tracked.
+build/

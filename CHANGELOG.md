@@ -46,6 +46,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   broke the build. Anything older than 10.3 stops with a `{$MESSAGE FATAL}` naming the requirement
   instead of failing obscurely further in. (2026-08-08) — `gllIdeAutomation.dpk`, `README.md`
 
+- `gllIdeAutomation.diproj` — the DocInsight project that builds the API documentation from the
+  units' XML doc comments. It carries only relative paths, so it works from any clone. The
+  generated `build/docs` output is not tracked. (2026-08-08) — `gllIdeAutomation.diproj`,
+  `.gitignore`, `README.md`
+
 ### Changed
 
 - `tools/Start-IDE.ps1` finds the IDE in the registry (`Software\Embarcadero\BDS\<ver>\RootDir`,
@@ -68,6 +73,16 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Fixed
 
+- Three illegal control characters in the starter unit's doc comment, which stopped DocInsight
+  transforming the topic to HTML (`0xC00CE508: An invalid character was found in text content`).
+  The example path had been written through a layer that interprets C escape sequences, so
+  `\37` became octal `0x1F` and each `\b` a backspace `0x08` — `Studio\37.0\bin64\bds.exe` was
+  stored as `Studio·.0·in64·ds.exe`. The other backslashes survived only because `\P`, `\E` and
+  `\S` are not escape sequences. **Why it went unnoticed:** control characters are invisible in an
+  editor and legal in Pascal comments, so the package compiled clean throughout — nothing but an
+  XML parser was ever going to object. All four doc blocks now parse as XML, and no tracked text
+  file contains a character below 0x20 other than tab, CR or LF. (2026-08-08) —
+  `src/gllIdeAutomation.Starter.pas`
 - The two entries above naming the starter unit called it `u_gllIdeAutomationStarter.pas`, which
   has never existed here — it is `src/gllIdeAutomation.Starter.pas`. (2026-08-08) —
   `CHANGELOG.md`

@@ -158,6 +158,11 @@ the library it came from.
   examples, and the scaling trap that catches everyone who clicks.
 - [docs/HELP.md](docs/HELP.md) - short answers for when it is not working.
 
+API documentation is generated from the units' XML doc comments by
+[DocInsight](https://devjetsoftware.com/docinsight/); `gllIdeAutomation.diproj` is the project that
+builds it, and the output lands in `build/docs` (not tracked). You do not need DocInsight to build
+or use the package — only to regenerate those pages.
+
 ## Layout
 
 ```

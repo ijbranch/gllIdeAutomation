@@ -10,7 +10,7 @@
 /// <para><b>To use it:</b> set the variable, then launch the IDE from the same shell:</para>
 /// <code>
 /// $env:GITLAK_IDE_AUTOMATION = '1'
-/// Start-Process 'C:\Program Files (x86)\Embarcadero\Studio.0in64ds.exe'
+/// Start-Process 'C:\Program Files (x86)\Embarcadero\Studio\37.0\bin64\bds.exe'
 /// </code>
 /// <para>The IDE then registers itself in the discovery directory as <c>DelphiIDE</c>, and
 /// tools/Start-IDE.ps1 does all of the above for you.</para>
