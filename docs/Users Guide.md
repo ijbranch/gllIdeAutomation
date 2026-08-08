@@ -33,6 +33,11 @@ GExperts, TestInsight, whatever you have — appear alongside the IDE's own.
 needs Win32. A design-time package must match the IDE loading it, and the wrong one simply never
 loads.
 
+The BPL carries version information, which is how you tell later which build an IDE has loaded.
+Building from the IDE advances the number for you; building from the command line does not —
+MSBuild ignores `VerInfo_AutoIncVersion` — so run `python tools/bump-build.py` first if you want
+the builds to be distinguishable.
+
 **2. Install** — Component > Install Packages > Add, and choose the BPL.
 
 **3. Enable.** Installing does not start anything. The server runs only when

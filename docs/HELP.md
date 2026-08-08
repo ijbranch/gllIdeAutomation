@@ -25,6 +25,16 @@ Almost always one of:
 
 - **A RAD Studio update.** The BPL is version-suffixed and the registration is per-version.
   Rebuild and re-register.
+- **The IDE is loading an older build than the one you just made.** The BPL carries version
+  information, so check rather than assume:
+
+  ```powershell
+  (Get-Item "$env:PUBLIC\Documents\Embarcadero\Studio\37.0\Bpl\Win64\gllIdeAutomation370.bpl").VersionInfo.FileVersion
+  ```
+
+  If that number has not moved since your last change, the build did not reach the BPL the IDE
+  loads. Note the number only advances on **Build**, not Compile — and not at all under MSBuild,
+  which ignores `VerInfo_AutoIncVersion`; run `python tools/bump-build.py` first in that case.
 - **The IDE was launched from somewhere that does not carry the environment variable** — a
   shortcut, a file association, another tool launching it.
 - **A stale discovery file** from an IDE that died without cleaning up. The file names itself

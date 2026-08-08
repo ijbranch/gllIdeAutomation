@@ -108,6 +108,7 @@ Cross-check with `--name`.
 | `tools/Start-IDE.ps1` | Launches the IDE with the gate set, waits for it to load, reports whether the server came up. `-NoAutomation` for a clean comparison IDE. |
 | `tools/click.py` | Clicks at a screen coordinate. Read its docstring before rolling your own. |
 | `tools/read_pane.py` | `read_pane.py X Y [--pane locals\|watch] [--name]` — selects the row and prints its value. Speaks the protocol directly; no other tooling needed. |
+| `tools/bump-build.py` | `bump-build.py [project.dproj] [--show]` — increments the build number. Needed only for command-line and CI builds; the IDE does it itself. |
 
 ## Dependencies
 
@@ -157,13 +158,25 @@ the library it came from.
 gllIdeAutomation.dpk / .dproj   the design-time package
 src/gllIdeAutomation.Server     the automation server (vendored)
 src/gllIdeAutomation.Starter    ~30 lines: the gate, and the call to Start
-tools/                          launcher, clicker, pane reader
+tools/                          launcher, clicker, pane reader, build bumper
 ```
 
 ## Keeping it working
 
 - **Rebuild and re-register after a RAD Studio upgrade.** The BPL is version-suffixed and the
-  registration is per-version.
+  registration is per-version. The suffix is picked by `CompilerVersion` in the `.dpk` — `AUTO` on
+  12 Athens and later, an explicit number below that, since `{$LIBSUFFIX AUTO}` is itself a
+  12-and-later feature and would otherwise be the thing that broke the build on an older IDE.
+- **Check which build is loaded before debugging a misbehaving one.** The BPL carries version
+  information, so its Details tab answers the question:
+
+  ```powershell
+  (Get-Item "$env:PUBLIC\Documents\Embarcadero\Studio\37.0\Bpl\Win64\gllIdeAutomation370.bpl").VersionInfo.FileVersion
+  ```
+
+  The IDE advances the number on each **Build** (not Compile). MSBuild ignores
+  `VerInfo_AutoIncVersion` entirely, so a command-line or CI build stamps the same number forever
+  unless you run `python tools/bump-build.py` first.
 - The starter swallows every exception in `initialization` and `finalization`. An exception
   escaping a design-time package's initialisation is reported to the user as a package load
   failure, for a facility they did not ask for — a port clash must cost the automation server,
