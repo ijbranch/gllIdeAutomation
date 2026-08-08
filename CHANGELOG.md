@@ -70,12 +70,21 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   the package has been built on. **Why:** an ambitious claim a stranger disproves in five minutes
   costs more than an honest one, and the 10.3–12 `$LIBSUFFIX` branches have never been
   exercised. (2026-08-08) — `README.md`
-- `<ProjectVersion>` lowered to 18.8 so older IDEs will open the project rather than refuse it,
-  matching the compiler range the `$LIBSUFFIX` conditional now covers. (2026-08-08) —
-  `gllIdeAutomation.dproj`
-- The `.dproj` is reindented to two spaces and carries a BOM — a one-time normalisation MSBuild
-  applied on first build, not a hand edit. Rebuilding is now byte-idempotent. (2026-08-08) —
-  `gllIdeAutomation.dproj`
+- Older IDEs are supported through the `.dpk` rather than through the `.dproj`. `<ProjectVersion>`
+  was briefly lowered to 18.8 so an older IDE would open the project; that was abandoned because
+  13 Florence rewrites it to 20.5 on every open, so the setting had to be reverted after each IDE
+  session to stay committed. **Why this way instead:** the `.dpk` is the actual project and is
+  version-agnostic — verified by compiling it with `dcc64` and no `.dproj` present at all, which
+  produced a correct, correctly-versioned BPL. A `.dproj` is only the MSBuild wrapper belonging to
+  whichever IDE wrote it, so an older IDE generates its own. Separate per-version project files
+  were considered and rejected: five copies of the same settings would drift, and only the 13
+  Florence one could be tested here. (2026-08-08) — `gllIdeAutomation.dproj`, `README.md`,
+  `docs/Users Guide.md`
+- The `.dproj` now holds whatever 13 Florence writes — `ProjectVersion` 20.5, the Win64x platform,
+  a `DCCReference` to the generated version resource, four-space indentation. It is treated as the
+  IDE's file rather than a hand-maintained one, so opening the project no longer produces a diff
+  to revert. A fresh checkout still builds: MSBuild compiles the `.rc` before resolving the
+  reference to its output. (2026-08-08) — `gllIdeAutomation.dproj`
 
 ### Fixed
 

@@ -33,6 +33,10 @@ GExperts, TestInsight, whatever you have — appear alongside the IDE's own.
 needs Win32. A design-time package must match the IDE loading it, and the wrong one simply never
 loads.
 
+On 13 Florence, open `gllIdeAutomation.dproj`. On anything older, open `gllIdeAutomation.dpk` and
+let your IDE generate its own `.dproj` — the `.dpk` is the real project and is version-agnostic,
+while a `.dproj` belongs to the IDE version that wrote it.
+
 The BPL carries version information, which is how you tell later which build an IDE has loaded.
 It comes from `gllIdeAutomationVersion.rc` — the one place the version is defined — and nothing
 advances it automatically, in the IDE or out of it. Run `python tools/bump-build.py` first if you

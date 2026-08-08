@@ -16,6 +16,7 @@ Fair warning on that range: it is what the source targets — inline variables s
 and the `$LIBSUFFIX` selection covers 10.3 through 13 — but **13 Florence is the only version it
 has actually been built on**, because it is the only one I have. If you try it on an older IDE I
 would be glad to hear how it went, particularly whether the package suffix comes out right.
+On anything older than 13, open the `.dpk` rather than the `.dproj` — see [Installing](#installing).
 
 ## What you can do with it
 
@@ -44,6 +45,11 @@ Commands: `ping`/`info`, `tree`, `get`, `set`, `click`, `action`, `dialogs`, `sc
 1. Build `gllIdeAutomation.dproj` for the platform matching your IDE — **Win64 for `bin64\bds.exe`**,
    **Win32 for `bin\bds.exe`**. A design-time package must match the bitness of the IDE loading
    it, and the wrong one silently never loads. Both platforms are configured and both build clean.
+
+   **On an IDE older than 13 Florence, open `gllIdeAutomation.dpk` instead** and let your IDE
+   write its own `.dproj` alongside it. The `.dpk` is the actual project and is version-agnostic;
+   the `.dproj` here is just the MSBuild wrapper 13 Florence happens to have generated, and every
+   IDE rewrites it to its own format on open. Don't commit the one yours produces.
 2. **Component > Install Packages > Add**, and pick the built BPL. Note the registration is
    per-bitness: the 64-bit IDE reads `Known Packages x64`, the 32-bit IDE reads `Known Packages`.
 
@@ -166,7 +172,8 @@ or use the package — only to regenerate those pages.
 ## Layout
 
 ```
-gllIdeAutomation.dpk / .dproj   the design-time package
+gllIdeAutomation.dpk            the design-time package — the real project
+gllIdeAutomation.dproj          13 Florence's MSBuild wrapper; each IDE rewrites its own
 gllIdeAutomationVersion.rc      the version, defined once
 src/gllIdeAutomation.Server     the automation server (vendored)
 src/gllIdeAutomation.Starter    ~30 lines: the gate, and the call to Start
