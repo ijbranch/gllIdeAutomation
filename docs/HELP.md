@@ -29,7 +29,7 @@ Almost always one of:
   information, so check rather than assume:
 
   ```powershell
-  (Get-Item "$env:PUBLIC\Documents\Embarcadero\Studio\37.0\Bpl\Win64\Release\gllIdeAutomation370.bpl").VersionInfo.FileVersion
+  (Get-Item "$env:PUBLIC\Documents\Embarcadero\Studio\37.0\Bpl\Win64\gllIdeAutomation370.bpl").VersionInfo.FileVersion
   ```
 
   If that number has not moved since your last change, the build did not reach the BPL the IDE

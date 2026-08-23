@@ -197,7 +197,7 @@ tools/                          launcher, clicker, pane reader, build bumper
   information, so its Details tab answers the question:
 
   ```powershell
-  (Get-Item "$env:PUBLIC\Documents\Embarcadero\Studio\37.0\Bpl\Win64\Release\gllIdeAutomation370.bpl").VersionInfo.FileVersion
+  (Get-Item "$env:PUBLIC\Documents\Embarcadero\Studio\37.0\Bpl\Win64\gllIdeAutomation370.bpl").VersionInfo.FileVersion
   ```
 
   The version is defined in exactly one place, `gllIdeAutomationVersion.rc`, and nothing advances
