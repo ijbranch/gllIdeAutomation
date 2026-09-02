@@ -2,6 +2,12 @@
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [Unreleased]
+
+### Changed
+
+- Repository moved to the `GITLAK-forks` Codeberg organisation: `origin` is now `https://codeberg.org/GITLAK-forks/gllIdeAutomation.git`, and the documentation references were updated to match. **Why:** the `GITLAK` account had reached Codeberg's hard limit of 100 repositories, and an organisation carries its own allowance (2026-09-03) — `CHANGELOG.md`
+
 ## [In-Service]
 
 > Libraries and packages are continuously deployed: changes below are live as soon as the package is rebuilt and installed - there is no separate release step, so no `[Unreleased]` backlog. Tagged version snapshots are listed beneath.
@@ -141,6 +147,6 @@ information on the BPL, a `tools/Start-IDE.ps1` hard-coded to one Delphi install
 invisible control characters in a doc comment that stopped the documentation building. Left in
 place rather than moved, because it was already published and genuinely was that code.
 
-[Unreleased]: https://codeberg.org/GITLAK/gllIdeAutomation/compare/v1.0.1...main
-[1.0.1]: https://codeberg.org/GITLAK/gllIdeAutomation/src/tag/v1.0.1
-[1.0.0]: https://codeberg.org/GITLAK/gllIdeAutomation/src/tag/v1.0.0
+[Unreleased]: https://codeberg.org/GITLAK-forks/gllIdeAutomation/compare/v1.0.1...main
+[1.0.1]: https://codeberg.org/GITLAK-forks/gllIdeAutomation/src/tag/v1.0.1
+[1.0.0]: https://codeberg.org/GITLAK-forks/gllIdeAutomation/src/tag/v1.0.0
