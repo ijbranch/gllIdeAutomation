@@ -4,6 +4,17 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### Fixed
+
+- `TargetedPlatforms` brought into line with the `<Platforms>` block in 1 `.dproj` (2026-09-10)
+  The earlier platform sweep removed the non-Windows `<Platform>` entries but left the
+  `<TargetedPlatforms>` bitmask untouched, so projects still advertised targets they no
+  longer declared — values such as `1048579` and `135171` encode Android/Linux/iOS, and
+  several Win32+Win64 projects still read `2` (Win64 only) or `1` (Win32 only).
+  Now `3` for Win32+Win64, `2` where only Win64 is declared.
+  **Why:** the mask is what the IDE reads for the Project Manager's platform list, so a
+  stale one puts dead platforms back in front of the reader.
+
 ### Changed
 
 - Project platforms normalised to Win32 + Win64 only in 1 `.dproj` file (2026-09-10)

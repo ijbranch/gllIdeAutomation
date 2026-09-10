@@ -9,7 +9,7 @@
         <ProjectGuid>{7B3C1A64-9D2E-4F58-B0A7-6C51E9D3F204}</ProjectGuid>
         <ProjectName Condition="'$(ProjectName)'==''">gllIdeAutomation</ProjectName>
         <ProjectVersion>20.5</ProjectVersion>
-        <TargetedPlatforms>1048579</TargetedPlatforms>
+        <TargetedPlatforms>3</TargetedPlatforms>
     </PropertyGroup>
     <PropertyGroup Condition="'$(Config)'=='Base' or '$(Base)'!=''">
         <Base>true</Base>
