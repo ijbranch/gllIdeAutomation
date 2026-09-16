@@ -6,6 +6,18 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Fixed
 
+- **Two `except` blocks no longer hide what went wrong, matching the fix already made in
+  `gllAutomationServer`** (2026-09-17) - `src\gllIdeAutomation.Server.pas`. This unit is a sibling of
+  GITLAKLib's `gllAutomationServer` and carried the identical code; a Pascal Analyzer sweep found both.
+  - **The stopper thread's bare `except` was LOAD BEARING**, so it stays broad. `Stop` waits on
+    `while not LFinished do CheckSynchronize( 50 )` and `LFinished := True` sat AFTER the handler, so
+    anything escaping would have left that loop spinning for ever. The assignment moves into a
+    `finally` and the failure is captured and reported after the join via `OutputDebugString` - not a
+    logger, because this is hosted inside `bds.exe` at shutdown, where there is none to reach.
+  - **`DeleteDiscovery` narrowed to `EInOutError`** and given the comment it never had; `TFile.Delete`
+    raises exactly that on a locked, ACL-denied or already-gone file.
+  - Built clean in all four modes, with the DCU timestamps checked in each.
+
 - `TargetedPlatforms` brought into line with the `<Platforms>` block in 1 `.dproj` (2026-09-10)
   The earlier platform sweep removed the non-Windows `<Platform>` entries but left the
   `<TargetedPlatforms>` bitmask untouched, so projects still advertised targets they no

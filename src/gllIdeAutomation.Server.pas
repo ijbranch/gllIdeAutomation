@@ -235,14 +235,27 @@ begin
     if FServer.Active then
     begin
       var LFinished := False;
+      var LStopError := '';
       var LStopper := TThread.CreateAnonymousThread(
         procedure
         begin
           try
-            FServer.Active := False;
-          except
+            try
+              FServer.Active := False;
+            except
+              //  Deliberately BROAD, and deliberately recorded rather than
+              //  merely swallowed. Broad because anything escaping this handler
+              //  would skip the assignment below and leave the loop that waits
+              //  on LFinished spinning for ever - the empty handler was load
+              //  bearing, not an oversight. Recorded because a deactivate that
+              //  failed used to report success and leave no trace at all.
+              on E: Exception do
+                LStopError := Format( '%s: %s', [ E.ClassName, E.Message ] );
+            end;
+          finally
+            //  The waiting loop below is released by this, whatever happened.
+            LFinished := True;
           end;
-          LFinished := True;
         end );
       LStopper.FreeOnTerminate := False;
       LStopper.Start;
@@ -253,6 +266,13 @@ begin
       finally
         LStopper.Free;
       end;
+
+      //  Reported after the join, on the main thread, and through
+      //  OutputDebugString rather than a logger: this runs at shutdown and
+      //  finalisation, and it is hosted inside bds.exe where there is no suite
+      //  logger to reach. The DBG_* capture tools pick it up.
+      if LStopError <> '' then
+        OutputDebugString( PChar( 'gllIdeAutomation: deactivating the server failed - ' + LStopError ) );
     end;
     FServer.Free;
   end;
@@ -290,6 +310,12 @@ begin
     try
       TFile.Delete( FDiscoveryPath );
     except
+      //  Best-effort cleanup of the discovery advertisement. TFile.Delete raises
+      //  EInOutError when the file is locked, ACL-denied or already gone, and
+      //  none of those is worth failing shutdown over. Narrowed deliberately, so
+      //  a programming error - a bad path, an access violation - still escapes
+      //  instead of being absorbed here.
+      on EInOutError do ;
     end;
 
 end;
