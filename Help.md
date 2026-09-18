@@ -12,7 +12,7 @@ repository is built and used on **Delphi 13 / RAD Studio 37.0 only**, VCL, **Win
 
 This file is the **lookup** document: the Pascal surface, the wire protocol, the error codes, and
 the failures with their exact text. For how to get it running and drive it, read
-[Users%20Guide.md](Users%20Guide.md). The history is in [CHANGELOG.md](CHANGELOG.md); the
+[Users Guide.md](Users%20Guide.md). The history is in [CHANGELOG.md](CHANGELOG.md); the
 rationale and the tooling are in [README.md](README.md).
 
 > `docs/HELP.md` and `docs/Users Guide.md` predate the estate documentation standard and are
