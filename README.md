@@ -20,6 +20,14 @@ has actually been built on**, because it is the only one I have. If you try it o
 would be glad to hear how it went, particularly whether the package suffix comes out right.
 On anything older than 13, open the `.dpk` rather than the `.dproj` — see [Installing](#installing).
 
+## Documentation
+
+| For | Read |
+|---|---|
+| The wire protocol — 13 commands, the argument vocabulary, 21 error codes, and failures by symptom | [Help.md](Help.md) |
+| Doing a job — start the gated IDE, connect, read a form, drive a control | [Users Guide.md](Users%20Guide.md) |
+| What changed and when | [CHANGELOG.md](CHANGELOG.md) |
+
 ## What you can do with it
 
 ```

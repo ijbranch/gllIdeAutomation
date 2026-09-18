@@ -4,6 +4,43 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### Added
+
+- **`Help.md` and `Users Guide.md`, to the estate documentation standard** (2026-09-18).
+  `Help.md` carries both flavours: the Pascal surface is tiny (`TAutomationServer.Start` /
+  `Stop` / `IsRunning` / `Port`), but the API people actually write against is the **wire
+  protocol** — 13 commands, a fixed argument vocabulary and 21 stable error codes — which is a
+  lookup table by any measure, plus failures by symptom since the package is consumed as-is.
+  `Users Guide.md` is task-ordered: start the gated IDE, connect, read a form, drive a control.
+  **The two structural limits are documented with their mechanism**, not just asserted: `get`
+  reads published properties through RTTI and `TVirtualStringTree` publishes neither cell text
+  nor selection, so debugger-pane *contents* are unreachable; and `AutoCmdTree` enumerates forms
+  then each form's **owned** components one level deep, so an add-in frame is out of reach — for
+  which the process module list is the way to prove a BPL loaded.
+  §3 records the real divergence here: `src\gllIdeAutomation.Server.pas` is **vendored** from
+  GITLAKLib's `gllAutomationServer` and deliberately renamed, because a Delphi unit may exist in
+  only one loaded package — and nothing keeps the two copies in step.
+
+### Fixed
+
+- **`README.md` and the `Starter.pas` docstring claim `Screen.CustomForms`; the code uses
+  `Screen.Forms`** (2026-09-18) — recorded here, written correctly in the new documents. All
+  four enumeration sites use `Screen.FormCount` / `Screen.Forms`. `Screen.Forms` is a strict
+  **subset** of `Screen.CustomForms`, so the documents claim a broader reach than the code has.
+- **`docs/Users Guide.md` lists a `dataset_op` value that does not exist** (2026-09-18). Its
+  table gives "insert / append / edit / post / cancel / refresh / **navigate**", and the Server
+  unit header uses the same shorthand. `AutoCmdDatasetOp` accepts `insert`, `append`, `edit`,
+  `post`, `cancel`, `refresh`, `first`, `last`, `next`, `prior`; `"op":"navigate"` returns
+  `BadOp`.
+- **The coordinate tables in `README.md` and `docs/` are written at the OLD 150% scaling**
+  (2026-09-18) — 5120x1440, which stopped being true on 2026-09-14. The new documents give the
+  coordinate guidance with no scale factor or pixel figures, because a recorded coordinate must
+  be re-measured rather than rescaled.
+- **A pre-standard pair survives at `docs/HELP.md` and `docs/Users Guide.md`** (2026-09-18) —
+  wrong location and wrong capitalisation. Left in place; the new root `Help.md` says they
+  predate the standard. Whether to delete them or reduce them to a redirect is a decision, not
+  a tidy-up.
+
 ### Fixed
 
 - **Two `except` blocks no longer hide what went wrong, matching the fix already made in
