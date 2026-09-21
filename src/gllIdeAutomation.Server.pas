@@ -4,10 +4,17 @@
   Copyright (c) 2016-2026 Ian Branch (GITLAK Software)
   Licensed under the MIT Licence - see LICENSE at the root of this repository.
 
-  PROVENANCE: vendored from GITLAKLib's gllAutomationServer. The body is unchanged - only this
-  header, the unit name and one exception message differ - so that this package depends on the
-  RTL, the VCL and Indy alone, and not on GITLAKLib. Fixes made here should be carried back to
-  GITLAKLib, and vice versa; nothing keeps the two copies in step automatically.
+  PROVENANCE: vendored from GITLAKLib's gllAutomationServer, so that this package depends on
+  the RTL, the VCL and Indy alone and not on GITLAKLib. Nothing keeps the two copies in step
+  automatically, and they HAD drifted: this body was re-synced from GITLAKLib's 0.8 on
+  2026-09-21, having sat at 0.7 and 283 lines behind, missing both the narrowed bind handler
+  and the styled-button click fallback.
+
+  Do NOT describe the body as unchanged. The fork deliberately diverges where the host differs
+  - it runs inside bds.exe, not inside an application we ship - and those divergences are the
+  header, the unit name, two message literals, the compiler guard, the wording of two comments,
+  and the items marked FORK below. Everything marked FORK is a fix that belongs upstream too;
+  carry it back to GITLAKLib rather than letting the copies drift again.
 
   The unit is renamed deliberately. A Delphi unit may exist in only one loaded package, so a
   copy still called gllAutomationServer could not be loaded into an IDE that already has
@@ -35,10 +42,16 @@
 ///   so it still works while a modal loop blocks Synchronize) · field_get ·
 ///   field_set (write a field — reaches values that data-aware controls hide,
 ///   e.g. the LMD DB edits publish no Text) · dataset_op (insert/append/edit/
-///   post/cancel/refresh/navigate — reaches what TwwNavButton does in the
+///   post/cancel/refresh/first/last/next/prior — reaches what TwwNavButton does in the
 ///   navigator rather than in OnClick) · dataset (assert on TDataSet state).
 ///   M-E: screenshot (PNG of the monitor the active form/dialog is on — also
 ///   OFF the VCL thread, so it can capture a blocking dialog; saved to Desktop).
+///   0.8: click takes a count (1..CLICK_COUNT_MAX) and reports clicksDispatched
+///   + stoppedReason when a handler raised (direct mode catches it here, so it
+///   never reaches Application.HandleException / EurekaLog — use mode=message to
+///   exercise a global error path) · set reports previous + changed · a NoProp
+///   failure carries the object's property surface, with live values, in
+///   error.data so the caller self-corrects without another round-trip.
 /// </summary>
 unit gllIdeAutomation.Server;
 
@@ -74,7 +87,7 @@ uses
   Winapi.Windows, Winapi.Messages, Winapi.MultiMon,
   Data.DB,
   Vcl.Forms, Vcl.Graphics, Vcl.Imaging.pngimage, Vcl.StdCtrls,
-  IdTCPServer, IdContext, IdGlobal;
+  IdTCPServer, IdContext, IdGlobal, IdException;
 
 const
   /// <summary>First loopback port tried when binding the listener; the constructor scans upward from here.</summary>
@@ -82,7 +95,15 @@ const
   /// <summary>Number of consecutive ports probed from <c>AUTOMATION_PORT_BASE</c> before the bind attempt is abandoned.</summary>
   AUTOMATION_PORT_SPAN = 200;    // ports to try before giving up
   /// <summary>Wire-protocol/feature version reported by the <c>ping</c>/<c>info</c> command's <c>server</c> field; bump when commands change.</summary>
-  SERVER_VERSION       = '0.7';  // + click mode=message (async BM_CLICK) · hung-window-safe dialog text reads
+  SERVER_VERSION       = '0.8';  // + click count/stoppedReason · set changed/previous · NoProp carries availableProperties
+  /// <summary>Upper bound on <c>click</c>'s <c>count</c> (a mistyped count must not lock the UI thread for minutes).</summary>
+  CLICK_COUNT_MAX      = 1000;
+  /// <summary>Upper bound on the property list returned with a <c>NoProp</c> failure; the reply is read by an agent, so it stays bounded.</summary>
+  PROPLIST_MAX         = 100;
+  /// <summary>How long a dialog click waits for the button's window to be destroyed before reporting <c>dismissed</c>.</summary>
+  DISMISS_WAIT_MS      = 750;
+  /// <summary>Polling step while waiting for a clicked dialog to close.</summary>
+  DISMISS_POLL_MS      = 25;
   // Fixed, account-independent discovery dir so the agent (which may resolve a
   // different %TEMP%, e.g. a service) and the app always agree. The MCP side
   // can override via settings.ini [Automation] DiscoveryDir.
@@ -206,7 +227,12 @@ begin
       FPort := AUTOMATION_PORT_BASE + iTry;
       Break;
     except
-      // Port in use — try the next.
+      //  Port in use - try the next. Narrowed to Indy's own exception root
+      //  (EIdCouldNotBindSocket and EIdSocketError both descend from it), so a
+      //  bind failure still advances the scan while a genuine fault - an access
+      //  violation, a bad configuration - is no longer disguised as a busy port
+      //  and silently retried against 100 addresses.
+      on EIdException do ;
     end;
   end;
 
@@ -418,10 +444,23 @@ type
   public
     /// <summary>Stable error code surfaced in the response's <c>error.code</c> (e.g. <c>NoForm</c>, <c>NoProp</c>).</summary>
     Code: string;
+    /// <summary>
+    ///   Optional machine-readable payload copied into the response's <c>error.data</c>
+    ///   (e.g. the writable-property list carried by a <c>NoProp</c> failure, so the
+    ///   caller can self-correct without a second round-trip). Owned by the exception.
+    /// </summary>
+    Data: TJSONValue;
     /// <summary>Creates the error with a machine code and a human message.</summary>
     /// <param name="ACode">The stable error code.</param>
     /// <param name="AMsg">The human-readable message.</param>
     constructor CreateCode( const ACode, AMsg: string );
+    /// <summary>Creates the error with a machine code, a human message, and an owned <c>error.data</c> payload.</summary>
+    /// <param name="ACode">The stable error code.</param>
+    /// <param name="AMsg">The human-readable message.</param>
+    /// <param name="AData">The payload; ownership passes to the exception (freed with it).</param>
+    constructor CreateCodeData( const ACode, AMsg: string; AData: TJSONValue );
+    /// <summary>Frees the owned <c>Data</c> payload.</summary>
+    destructor Destroy; override;
   end;
 
 constructor EAutoError.CreateCode( const ACode, AMsg: string );
@@ -429,6 +468,24 @@ begin
 
   inherited Create( AMsg );
   Code := ACode;
+
+end;
+
+constructor EAutoError.CreateCodeData( const ACode, AMsg: string; AData: TJSONValue );
+begin
+
+  inherited Create( AMsg );
+  Code := ACode;
+  Data := AData;
+
+end;
+
+destructor EAutoError.Destroy;
+begin
+
+  Data.Free;
+
+  inherited;
 
 end;
 
@@ -585,10 +642,96 @@ begin
 
 end;
 
+/// <summary>
+///   Enumerates an object's published properties as
+///   <c>{ properties:[ { name, type, value? } ], total, truncated }</c> — the payload
+///   attached to a <c>NoProp</c> failure so the caller learns the real property surface
+///   (with live values) from the failed call instead of guessing again.
+/// </summary>
+/// <param name="AObj">The component or form to enumerate.</param>
+/// <param name="AWritableOnly">True to list only properties that have a setter (the <c>set</c> command's view).</param>
+/// <returns>A new object; the array is capped at <c>PROPLIST_MAX</c> entries with <c>truncated</c> set.</returns>
+/// <remarks>
+///   Only properties <c>get</c>/<c>set</c> can act on are listed: events, and object /
+///   interface / array-typed properties, are neither readable as a scalar nor writable
+///   through <c>SetPropValue</c>. Every listed entry therefore carries a value — read
+///   under its own guard, since a property getter may raise.
+/// </remarks>
+function PropsJSON( AObj: TObject; AWritableOnly: Boolean ): TJSONObject;
+const
+  VALUE_KINDS = [ tkInteger, tkChar, tkEnumeration, tkFloat, tkString, tkSet,
+                  tkWChar, tkLString, tkWString, tkVariant, tkInt64, tkUString ];
+begin
+
+  Result := TJSONObject.Create;
+
+  var oProps  := TJSONArray.Create;
+  var iTotal  := 0;
+  var pList: PPropList;
+  var iCount  := GetPropList( AObj, pList );
+  try
+    for var i := 0 to iCount - 1 do
+    begin
+      var pProp := pList^[ i ];
+
+      // List only what get/set can actually act on. Events, and object / interface /
+      // array-typed properties (TFont, TMargins, TPopupMenu…), are neither readable as a
+      // scalar nor writable through SetPropValue - listing them is pure noise in a payload
+      // the caller pays for by the token.
+      if not ( pProp^.PropType^.Kind in VALUE_KINDS ) then Continue;
+      if pProp^.GetProc = nil then Continue;
+      if AWritableOnly and ( pProp^.SetProc = nil ) then Continue;
+
+      Inc( iTotal );
+      if oProps.Count >= PROPLIST_MAX then Continue;                  // keep counting, stop listing
+
+      var oEntry := TJSONObject.Create;
+      oEntry.AddPair( 'name', string( pProp^.Name ) );
+      oEntry.AddPair( 'type', string( pProp^.PropType^.Name ) );
+
+      try
+        oEntry.AddPair( 'value', VarToJSON( GetPropValue( AObj, string( pProp^.Name ) ) ) );
+      except
+        // A getter that raises must not sink the whole listing - report that one as null.
+        on E: Exception do
+          oEntry.AddPair( 'value', TJSONNull.Create );
+      end;
+
+      oProps.AddElement( oEntry );
+    end;
+  finally
+    if iCount > 0 then FreeMem( pList );
+  end;
+
+  Result.AddPair( 'properties', oProps );
+  Result.AddPair( 'total', TJSONNumber.Create( iTotal ) );
+  Result.AddPair( 'truncated', TJSONBool.Create( iTotal > oProps.Count ) );
+
+end;
+
+/// <summary>Builds the <c>NoProp</c> failure for a component, carrying its property surface as <c>error.data</c>.</summary>
+/// <param name="AObj">The component or form the property was looked for on.</param>
+/// <param name="AName">The component name to quote in the message.</param>
+/// <param name="AProp">The property name that was not found.</param>
+/// <param name="AWritableOnly">True when the caller was writing (list only settable properties).</param>
+/// <returns>The exception to raise (never nil).</returns>
+function NoPropError( AObj: TObject; const AName, AProp: string; AWritableOnly: Boolean ): EAutoError;
+begin
+
+  var sWhich := 'published';
+  if AWritableOnly then sWhich := 'writable';
+
+  Result := EAutoError.CreateCodeData( 'NoProp',
+    Format( '%s has no published property "%s" - error.data.properties lists its %s properties with their live values',
+      [ AName, AProp, sWhich ] ),
+    PropsJSON( AObj, AWritableOnly ) );
+
+end;
+
 /// <summary><c>get</c> command: reads one published property of a component (or the form).</summary>
 /// <param name="AReq">The request object (<c>form?</c>, <c>name?</c>, <c>prop</c>).</param>
 /// <returns><c>{ name, prop, value }</c>.</returns>
-/// <remarks>Raises <c>EAutoError</c> —Code <c>NoProp</c> when the property isn't published.</remarks>
+/// <remarks>Raises <c>EAutoError</c> —Code <c>NoProp</c> (carrying the property surface in <c>error.data</c>) when the property isn't published.</remarks>
 function AutoCmdGet( AReq: TJSONObject ): TJSONValue;
 begin
 
@@ -597,7 +740,7 @@ begin
   var sProp := AReq.GetValue<string>( 'prop', '' );
 
   if not IsPublishedProp( oComp, sProp ) then
-    raise EAutoError.CreateCode( 'NoProp', Format( '%s has no published property "%s"', [ oComp.Name, sProp ] ) );
+    raise NoPropError( oComp, oComp.Name, sProp, False );
 
   Result := TJSONObject.Create;
   TJSONObject( Result ).AddPair( 'name', oComp.Name );
@@ -606,10 +749,23 @@ begin
 
 end;
 
-/// <summary><c>set</c> command: writes one published property (variant-coerced), then reads it back.</summary>
+/// <summary>
+///   <c>set</c> command: writes one published property (variant-coerced), then reads it back
+///   and reports whether the write actually moved the value.
+/// </summary>
 /// <param name="AReq">The request object (<c>form?</c>, <c>name?</c>, <c>prop</c>, <c>value</c>).</param>
-/// <returns><c>{ name, prop, value }</c> with the read-back value.</returns>
-/// <remarks>Raises <c>EAutoError</c> —Code <c>NoProp</c> when the property isn't published.</remarks>
+/// <returns><c>{ name, prop, value, previous, changed }</c> — <c>value</c> is the read-back.</returns>
+/// <remarks>
+///   Raises <c>EAutoError</c> —Code <c>NoProp</c> (carrying the writable-property list in
+///   <c>error.data</c>) when the property isn't published.
+///   <para>
+///   <c>changed:false</c> means the property already held this value, so an <c>OnChange</c>
+///   hanging off it almost certainly did NOT fire (VCL setters conventionally guard on
+///   equality). The write is still performed rather than elided: a setter may do work even
+///   for an unchanged value, and suppressing that would make the bridge lie about what a
+///   real assignment does.
+///   </para>
+/// </remarks>
 function AutoCmdSet( AReq: TJSONObject ): TJSONValue;
 begin
 
@@ -618,14 +774,33 @@ begin
   var sProp := AReq.GetValue<string>( 'prop', '' );
 
   if not IsPublishedProp( oComp, sProp ) then
-    raise EAutoError.CreateCode( 'NoProp', Format( '%s has no published property "%s"', [ oComp.Name, sProp ] ) );
+    raise NoPropError( oComp, oComp.Name, sProp, True );
+
+  // Snapshot first so the reply can say whether this call moved the value or merely
+  // restated it - the difference between "I caused that" and "it was already correct".
+  var vOld     := Null;
+  var bHaveOld := True;
+  try
+    vOld := GetPropValue( oComp, sProp );
+  except
+    on E: Exception do
+      bHaveOld := False;                       // write-only or raising getter: report unknown, not a failure
+  end;
 
   SetPropValue( oComp, sProp, JSONToVar( AReq.GetValue( 'value' ) ) );
+
+  var vNew := GetPropValue( oComp, sProp );
 
   Result := TJSONObject.Create;
   TJSONObject( Result ).AddPair( 'name', oComp.Name );
   TJSONObject( Result ).AddPair( 'prop', sProp );
-  TJSONObject( Result ).AddPair( 'value', VarToJSON( GetPropValue( oComp, sProp ) ) );
+  TJSONObject( Result ).AddPair( 'value', VarToJSON( vNew ) );
+
+  if bHaveOld then
+  begin
+    TJSONObject( Result ).AddPair( 'previous', VarToJSON( vOld ) );
+    TJSONObject( Result ).AddPair( 'changed', TJSONBool.Create( VarCompareValue( vOld, vNew ) <> vrEqual ) );
+  end;
 
 end;
 
@@ -638,20 +813,40 @@ end;
 ///   path, so <c>Action</c>, <c>ModalResult</c> and <c>OnClick</c> all fire as for a real
 ///   mouse click.
 /// </summary>
-/// <param name="AReq">The request object (<c>form?</c>, <c>name</c>, <c>mode?</c> — <c>direct</c> (default) / <c>message</c>).</param>
-/// <returns><c>{ clicked, mode }</c>; message mode adds <c>posted:true</c> (the click has not yet run when the reply is written).</returns>
+/// <param name="AReq">The request object (<c>form?</c>, <c>name</c>, <c>mode?</c> — <c>direct</c> (default) / <c>message</c>, <c>count?</c> — 1..<c>CLICK_COUNT_MAX</c>).</param>
+/// <returns>
+///   <c>{ clicked, mode, clicksDispatched }</c>; message mode adds <c>posted:true</c> (the clicks
+///   have not yet run when the reply is written). Direct mode adds <c>stoppedReason</c> +
+///   <c>stoppedMessage</c> when a handler raised.
+/// </returns>
 /// <remarks>
 ///   Raises <c>EAutoError</c> —Code <c>NoOnClick</c> / <c>NoHandler</c> (direct mode: no assigned handler);
 ///   <c>NotButton</c> (message mode: not a button-class windowed control, e.g. a TSpeedButton);
 ///   <c>NotClickable</c> (message mode: not visible+enabled — a user could not click it);
-///   <c>BadMode</c> (unknown <c>mode</c> value).
+///   <c>BadMode</c> (unknown <c>mode</c> value); <c>BadCount</c> (<c>count</c> outside 1..<c>CLICK_COUNT_MAX</c>).
+///   <para>
+///   EXCEPTION FIREWALL — direct mode invokes the handler inside this command, so anything it
+///   raises is caught here (reported as <c>stoppedReason:"exception:&lt;ClassName&gt;"</c>) and
+///   NEVER reaches <c>Application.HandleException</c>. EurekaLog, <c>Application.OnException</c>
+///   and any <c>TApplicationEvents.OnException</c> therefore do not fire, and the app shows no
+///   error dialog — which reads exactly like "EurekaLog is broken" when in fact it was never
+///   invoked. To exercise a global error path, use <c>mode=message</c>: the posted BM_CLICK runs
+///   the handler from the app's own message loop, outside this call, so the exception takes the
+///   same route it would from a real user click. (Before 0.8 the raise escaped to the generic
+///   command handler and came back as code <c>Internal</c>, indistinguishable from a bridge fault
+///   — the swallowing is not new, only the reporting.)
+///   </para>
 /// </remarks>
 function AutoCmdClick( AReq: TJSONObject ): TJSONValue;
 begin
 
-  var oForm := AutoResolveForm( AReq );
-  var oComp := AutoResolveComp( AReq, oForm );
-  var sMode := AReq.GetValue<string>( 'mode', 'direct' );
+  var oForm  := AutoResolveForm( AReq );
+  var oComp  := AutoResolveComp( AReq, oForm );
+  var sMode  := AReq.GetValue<string>( 'mode', 'direct' );
+  var iCount := AReq.GetValue<Integer>( 'count', 1 );
+
+  if ( iCount < 1 ) or ( iCount > CLICK_COUNT_MAX ) then
+    raise EAutoError.CreateCode( 'BadCount', Format( 'count %d is outside 1..%d', [ iCount, CLICK_COUNT_MAX ] ) );
 
   if SameText( sMode, 'message' ) then
   begin
@@ -667,13 +862,15 @@ begin
     if ( not oBtn.Visible ) or ( not oBtn.Enabled ) then
       raise EAutoError.CreateCode( 'NotClickable', oBtn.Name + ' is not visible+enabled' );
 
-    if not PostMessage( oBtn.Handle, BM_CLICK, 0, 0 ) then
-      RaiseLastOSError;
+    for var i := 1 to iCount do
+      if not PostMessage( oBtn.Handle, BM_CLICK, 0, 0 ) then
+        RaiseLastOSError;
 
     Result := TJSONObject.Create;
     TJSONObject( Result ).AddPair( 'clicked', oComp.Name );
     TJSONObject( Result ).AddPair( 'mode', 'message' );
     TJSONObject( Result ).AddPair( 'posted', TJSONBool.Create( True ) );
+    TJSONObject( Result ).AddPair( 'clicksDispatched', TJSONNumber.Create( iCount ) );
     Exit;
   end;
 
@@ -690,11 +887,36 @@ begin
 
   var oEvent: TNotifyEvent;
   TMethod( oEvent ) := m;
-  oEvent( oComp );
+
+  var iDone     := 0;
+  var sStopped  := '';
+  var sStopMsg  := '';
+  for var i := 1 to iCount do
+    try
+      oEvent( oComp );
+      Inc( iDone );
+    except
+      // Report the raise instead of letting it reach the generic handler as 'Internal':
+      // one failing click must not look like a bridge fault, and must not abort a count run
+      // silently. See the EXCEPTION FIREWALL note above - this never reaches EurekaLog.
+      on E: Exception do
+      begin
+        sStopped := 'exception:' + E.ClassName;
+        sStopMsg := E.Message;
+        Break;
+      end;
+    end;
 
   Result := TJSONObject.Create;
   TJSONObject( Result ).AddPair( 'clicked', oComp.Name );
   TJSONObject( Result ).AddPair( 'mode', 'direct' );
+  TJSONObject( Result ).AddPair( 'clicksDispatched', TJSONNumber.Create( iDone ) );
+
+  if sStopped <> '' then
+  begin
+    TJSONObject( Result ).AddPair( 'stoppedReason', sStopped );
+    TJSONObject( Result ).AddPair( 'stoppedMessage', sStopMsg );
+  end;
 
 end;
 
@@ -838,6 +1060,11 @@ begin
 end;
 
 /// <summary>
+///   A click is attempted first with <c>BM_CLICK</c> and then, if the button survives it,
+///   with <c>WM_LBUTTONDOWN</c>/<c>WM_LBUTTONUP</c> - a custom-drawn control such as
+///   Ethea's <c>TStyledButton</c> keeps a window class containing 'button' but does not
+///   implement <c>BM_CLICK</c>. The reply carries <c>dismissed</c>, which reports whether
+///   the button window actually went away.
 ///   <c>dialogs</c> command (Win32-only, runs OFF the VCL thread). With no
 ///   <c>"button"</c> key it lists the open top-level windows and their visible
 ///   button children; with a <c>"button"</c> it clicks the first visible+enabled
@@ -897,9 +1124,45 @@ begin
             var dwRes: DWORD_PTR := 0;
             SendMessageTimeout( hb, BM_CLICK, 0, 0, SMTO_ABORTIFHUNG, 5000, @dwRes );
 
+            //  A STYLED or otherwise custom-drawn control keeps a window class containing
+            //  'button' - so the search above finds it - but its window procedure does not
+            //  implement BM_CLICK, and the send SUCCEEDS while nothing happens. Ethea's
+            //  TStyledButton on a TStyledTaskDialog is exactly this. Fall back to the mouse
+            //  messages every TControl does handle.
+            if IsWindow( hb ) then
+            begin
+              var rc: TRect;
+              if GetClientRect( hb, rc ) then
+              begin
+                var lp: LPARAM := MakeLParam( ( rc.Right - rc.Left ) div 2,
+                                              ( rc.Bottom - rc.Top ) div 2 );
+                SendMessageTimeout( hb, WM_LBUTTONDOWN, MK_LBUTTON, lp,
+                                    SMTO_ABORTIFHUNG, 5000, @dwRes );
+                SendMessageTimeout( hb, WM_LBUTTONUP, 0, lp,
+                                    SMTO_ABORTIFHUNG, 5000, @dwRes );
+              end;
+            end;
+
             Result := TJSONObject.Create;
             TJSONObject( Result ).AddPair( 'clicked', sBtnText );
             TJSONObject( Result ).AddPair( 'dialog', sDlgText );
+            //  Whether the click TOOK EFFECT, not merely whether a message was sent. A
+            //  caller that cannot tell those apart chases the wrong problem.
+            //
+            //  The button posts a ModalResult and the window is destroyed only once the
+            //  MODAL LOOP UNWINDS, which has not happened by the time the click returns -
+            //  so reading IsWindow immediately reports false for a click that worked.
+            //  Wait for it, briefly and with a bound: this runs off the VCL thread, so
+            //  sleeping here cannot stall the loop we are waiting on.
+            var iWaited := 0;
+            while IsWindow( hb ) and ( iWaited < DISMISS_WAIT_MS ) do
+            begin
+              Sleep( DISMISS_POLL_MS );
+              Inc( iWaited, DISMISS_POLL_MS );
+            end;
+
+            TJSONObject( Result ).AddPair( 'dismissed',
+                                           TJSONBool.Create( not IsWindow( hb ) ) );
             Exit;
           end;
         end;
@@ -1369,6 +1632,9 @@ begin
       var oErr := TJSONObject.Create;
       oErr.AddPair( 'code', E.Code );
       oErr.AddPair( 'message', E.Message );
+      // Clone: the payload belongs to the exception, which is freed on leaving this handler.
+      if Assigned( E.Data ) then
+        oErr.AddPair( 'data', E.Data.Clone as TJSONValue );
       Result.AddPair( 'error', oErr );
     end;
     on E: Exception do
