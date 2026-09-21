@@ -114,7 +114,17 @@ Three things to know about it:
   `json.load` throws.
 
 The file is deleted on clean shutdown. One left behind means the IDE died without cleaning up —
-the name is the PID, so check the process is alive before trusting it.
+the name is the PID, so check the process is alive before trusting it. **This matters more than it
+sounds**: the obvious way to find the IDE is to take the first file whose `app` is `DelphiIDE`,
+which is exactly what `tools\read_pane.py` does, so a single corpse makes a perfectly healthy IDE
+look unreachable. The server sweeps the directory on startup and deletes any `<pid>.json` whose
+process has gone, which clears the common case, but a consumer should still check.
+
+A fourth thing, if you are looking at the folder's permissions: it is created with a **protected**
+DACL naming only `SYSTEM`, `BUILTIN\Administrators` and the account the IDE runs as. That is
+because the file holds the token, and `C:\ProgramData` otherwise grants every local user read. An
+*existing* folder is left as it is — see [Help.md §8](Help.md#8-security) for why, and for the
+one-line check.
 
 ---
 
@@ -134,9 +144,12 @@ $w.Flush()
 $r.ReadLine() | ConvertFrom-Json
 ```
 
-`ping` answers `{ app, pid, version, exe, mainForm, server }`, where `server` is the protocol
-version (`0.7`) and `version` is `bds.exe`'s own file version. If that returns, everything from
-here is detail.
+`ping` answers `{ app, pid, version, package, exe, mainForm, server }`, where `server` is the
+protocol version (`0.8`). The two version fields are **not** the same thing and the distinction is
+the point: `version` is the **host's** — inside the IDE that is `bds.exe`'s, something like
+`37.0.60952.8797` — while `package` is this package's own BPL version, which is how you tell which
+build of `gllIdeAutomation` the IDE has actually loaded. If that returns, everything from here is
+detail.
 
 From Python, the whole client is ten lines — `tools\read_pane.py` carries this one:
 
@@ -193,13 +206,20 @@ a coerced or rejected write did not take:
 
 ```json
 { "cmd":"set", "form":"MyForm", "name":"edName", "prop":"Text", "value":"Smith" }
+{ "id":1, "ok":true, "result":{ "name":"edName", "prop":"Text", "value":"Smith", "previous":"Jones", "changed":true } }
 ```
+
+`previous` is what the property held before the write and `changed` compares the two, so a write
+that was silently ignored is visible without a second `get`. **Both fields are omitted together**
+when the property has no readable getter, or when its getter raised — so test for `changed` before
+trusting it rather than treating a missing one as `false`.
 
 `form` may be a form's `Name`, `"main"` or `"active"`; omit it and you get the main form. Omit
 `name` and you address the form itself, which is how you read a form's `Caption` or `Visible`.
 
 Only **published** properties are reachable. `NoProp` means the property is not published, not
-that you spelled it wrong.
+that you spelled it wrong — and the failure carries `error.data.properties`, the ones the object
+*does* publish with their live values, so a near-miss corrects itself without another round-trip.
 
 ---
 
@@ -241,7 +261,7 @@ Use `mode=message` instead. It posts `BM_CLICK` and replies immediately:
 
 ```json
 { "cmd":"click", "form":"main", "name":"btnSave", "mode":"message" }
-{ "id":1, "ok":true, "result":{ "clicked":"btnSave", "mode":"message", "posted":true } }
+{ "id":1, "ok":true, "result":{ "clicked":"btnSave", "mode":"message", "posted":true, "clicksDispatched":1 } }
 ```
 
 Then answer the dialog:
@@ -253,13 +273,27 @@ Then answer the dialog:
 
 `dialogs` with no `button` lists the open top-level windows with their visible, enabled buttons;
 with a `button` it clicks the first whose caption matches, ignoring the `&` accelerator marker
-and surrounding whitespace, and returns `{ clicked, dialog }`.
+and surrounding whitespace, and returns `{ clicked, dialog, dismissed }`.
+
+**Read `dismissed`, not just `clicked`.** `clicked` says a message was sent; `dismissed` says the
+window actually went away. The two differ for a custom-drawn button — a styled control keeps a
+window class containing `button`, so it is found, but its window procedure may not implement
+`BM_CLICK`, and the send then succeeds while nothing happens. The server falls back to the mouse
+messages every `TControl` handles and then waits briefly to see the window close, which is what
+`dismissed` reports.
 
 **Why this works while the IDE is blocked:** `dialogs` runs on the worker thread, not the VCL
 thread. It enumerates windows with the Win32 API and clicks with `SendMessageTimeout( …,
 SMTO_ABORTIFHUNG, 5000, … )`, so a modal loop that has blocked `Synchronize` does not stop it.
 `mode=message` requires a button-class control — anything else returns `NotButton`, and a button
 that is not both visible and enabled returns `NotClickable`.
+
+`click` also takes a `count` (1 to 1000; outside that, `BadCount`) and reports `clicksDispatched`.
+That is not the same number when a handler raises part-way through: in `direct` mode the raise is
+caught and reported as `stoppedReason` / `stoppedMessage` rather than escaping, so you learn both
+that it failed and how far it got. Note the consequence — a `direct` click never reaches
+`Application.HandleException`, so use `mode=message` when the point is to exercise a global error
+path.
 
 ---
 
@@ -270,7 +304,10 @@ that is not both visible and enabled returns `NotClickable`.
 { "id":1, "ok":true, "result":{ "path":"C:\\Users\\…\\Desktop\\DelphiIDE-1234567.png", "width":3840, "height":2160, "area":"monitor" } }
 ```
 
-The PNG is written to the Desktop and the path is returned. `area` chooses what is captured:
+The PNG is written to the Desktop and the path is returned — the *real* Desktop, resolved through
+the known-folder API, so it still lands where you will find it when the Desktop is redirected to
+OneDrive. Nothing cleans these up; they accumulate until you delete them. `area` chooses what is
+captured:
 
 | `area` | Captures |
 |---|---|
@@ -367,7 +404,9 @@ this server is hosted in.
 first, and reaches values that data-aware controls hide behind unpublished properties.
 
 `name` may be a `TDataSet` or a `TDataSource`; anything else gives `NotDataSet`, and a closed
-dataset gives `DataSetClosed`.
+dataset gives `DataSetClosed` — from `dataset_op`, `field_get` and `field_set`, but **not** from
+`dataset`, which reports `{ dataset, active:false }` and stops there. Read `active` before you read
+`recordCount`, `recNo`, `bof` or `eof`, because a closed dataset simply does not carry them.
 
 ---
 
@@ -376,6 +415,18 @@ dataset gives `DataSetClosed`.
 **There is no `wait` command, and there will not be one.** Waiting is a client concern: poll `get`
 on the property you care about. A blocking wait on the server would tie up the connection and,
 worse, hold the VCL thread it marshals onto.
+
+**A request always gets a reply.** A malformed envelope — a field of the wrong JSON type, an
+unknown command, a bad token — comes back as an error object carrying your `id`, never as a
+closed connection. The single exception is a request line over 1 MB, which is answered with
+`RequestTooLong` and *then* disconnected, because the rest of that line would otherwise be read as
+though it were your next request. So if you ever see a connection close without a reply, that is a
+genuine fault worth reporting rather than something you did.
+
+**The IDE is not modified behind your back.** This package reads the IDE's component model and
+does what you ask; it does not adjust the IDE to suit itself. In particular it does not disable
+IDE or plug-in timers, which the upstream version of this server does when driving an application
+that might log itself out mid-test.
 
 **Know which thread a command runs on.** `dialogs` and `screenshot` run on the worker thread;
 everything else is marshalled to the main VCL thread. That is precisely why those two still work

@@ -22,7 +22,7 @@ what to do:
 { "cmd":"click", "form":"LocalVarsWindow", "name":"lvCopyValue" }
 ```
 
-It knows nothing about the IDE specifically. It walks `Screen.CustomForms`, so plugin windows —
+It knows nothing about the IDE specifically. It walks `Screen.Forms`, so plugin windows —
 GExperts, TestInsight, whatever you have — appear alongside the IDE's own.
 
 ---
@@ -91,16 +91,16 @@ the form itself.
 
 | cmd | fields | does |
 |---|---|---|
-| `ping` / `info` | — | `{ app, pid, version, exe, mainForm, server }` |
+| `ping` / `info` | — | `{ app, pid, version, package, exe, mainForm, server }` — `version` is the host exe's, `package` is this package's own |
 | `tree` | `form?` | no form: every open form. With a form: its components and their key published properties |
 | `get` | `form?`, `name?`, `prop` | reads any published property, typed |
 | `set` | `form?`, `name?`, `prop`, `value` | writes a published property and reads it back |
-| `click` | `form?`, `name`, `mode?` | fires the component's `OnClick`. `mode=message` posts `BM_CLICK` instead and replies immediately — use it when the handler opens a modal dialog |
+| `click` | `form?`, `name`, `mode?`, `count?` | fires the component's `OnClick`. `mode=message` posts `BM_CLICK` instead and replies immediately — use it when the handler opens a modal dialog |
 | `action` | `form?`, `name` | executes a `TAction` (or the action on a named control). Covers commands with no clickable control |
 | `dialogs` | `button?` | lists open windows and their visible enabled buttons; with `button`, clicks the first match. Runs off the VCL thread, so it works while a modal loop is blocking |
 | `screenshot` | `area?` | PNG to the Desktop. Default is the monitor the active form is on; `"window"` or `"virtual"` also accepted |
 | `dataset` | `form?`, `name`, `fields?` | state of a `TDataSet` |
-| `dataset_op` | `form?`, `name`, `op` | insert / append / edit / post / cancel / refresh / navigate |
+| `dataset_op` | `form?`, `name`, `op` | insert / append / edit / post / cancel / refresh / first / last / next / prior |
 | `field_get` | `form?`, `name`, `field` | one field's value from a `TDataSet` or `TDataSource` |
 | `field_set` | `form?`, `name`, `field`, `value` | writes a field, putting a browsing dataset into edit mode first |
 
@@ -147,7 +147,7 @@ Read the discovery file with `encoding="utf-8-sig"` — it is written with a BOM
 
 ## Recipes
 
-**What is open?** `{"cmd":"tree"}`. Expect around 48 forms on a stock IDE. Many exist but are
+**What is open?** `{"cmd":"tree"}`. Expect roughly 45 forms on a stock IDE. Many exist but are
 invisible until first used.
 
 **Which stack frame is Local Variables showing?**
@@ -226,7 +226,7 @@ Two further points, both learned by getting them wrong:
 - **Drive the main menu.** It is custom-drawn and does not surface as menu items. Use `Alt`
   accelerators via keystrokes, and screenshot the open menu to read them rather than guessing —
   shortcuts vary by keymap.
-- **FireMonkey.** The server walks `TControl`/`TWinControl` and `Screen.CustomForms`.
+- **FireMonkey.** The server walks `TComponent` and `Screen.Forms`.
 
 ---
 

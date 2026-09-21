@@ -41,8 +41,12 @@ Implementation-only constants worth knowing, because they define observable beha
 |---|---|---|
 | `AUTOMATION_PORT_BASE` | `8730` | First loopback port tried. |
 | `AUTOMATION_PORT_SPAN` | `200` | Consecutive ports probed before the bind is abandoned. |
-| `SERVER_VERSION` | `'0.7'` | Reported as `server` by `ping`/`info`. |
-| `DISCOVERY_DIR` | `C:\ProgramData\GITLAK\Automation` | Where the per-PID discovery file is written. |
+| `SERVER_VERSION` | `'0.8'` | Reported as `server` by `ping`/`info`. |
+| `MAX_REQUEST_BYTES` | `1048576` | Longest request line accepted; longer is `RequestTooLong`. |
+| `CLICK_COUNT_MAX` | `1000` | Upper bound on `click`'s `count`. |
+| `PROPLIST_MAX` | `100` | Cap on the property list returned with a `NoProp` failure. |
+| `DISMISS_WAIT_MS` | `750` | How long a dialog click waits to see the window go away before reporting `dismissed`. |
+| `DISCOVERY_DIR` | `C:\ProgramData\GITLAK\Automation` | Where the per-PID discovery file is written. Created with a restricted DACL — see [Security](#8-security). |
 
 ### `gllIdeAutomation.Starter`
 
@@ -72,8 +76,16 @@ the `token` from that instance's discovery file, or the connection is answered w
 | Field | Required | Meaning |
 |---|---|---|
 | `token` | yes | The per-session GUID from the discovery file. Checked first. |
-| `id` | no | Echoed back on the response. Defaults to `0`. |
+| `id` | no | Echoed back on **every** response, success or failure. Defaults to `0`. |
 | `cmd` | yes | One of the commands below. |
+
+A field of the wrong JSON type is treated as absent rather than as a reason to fail: `{"id":"abc"}`
+leaves `id` at `0`, and a non-string `cmd` falls through to `UnknownCmd`. Nothing in the envelope
+can cost you the connection — see [Every request gets a reply](#every-request-gets-a-reply).
+
+A request line longer than **1 MB** (`MAX_REQUEST_BYTES`) is refused with `RequestTooLong` and the
+connection is then closed, because the rest of that line would otherwise be read as if it were the
+next request.
 
 ### Addressing
 
@@ -88,15 +100,15 @@ Read out of `TServerImpl.ExecuteCommand` and the `AutoCmd*` functions.
 
 | `cmd` | Request fields | Result |
 |---|---|---|
-| `ping` / `info` | — | `{ app, pid, version, exe, mainForm, server }` |
+| `ping` / `info` | — | `{ app, pid, version, package, exe, mainForm, server }` — `version` is the **host executable's** (inside the IDE, `bds.exe`'s); `package` is **this package's own** BPL version |
 | `tree` | `form?` | No `form`: `{ forms:[ { name, class, visible } … ] }` over `Screen.Forms`. With `form`: `{ form, class, components:[ … ] }` |
 | `get` | `form?`, `name?`, `prop` | `{ name, prop, value }` |
-| `set` | `form?`, `name?`, `prop`, `value` | `{ name, prop, value }` — the value **read back** after the write |
-| `click` | `form?`, `name`, `mode?` | `{ clicked, mode }`, plus `posted:true` in message mode |
+| `set` | `form?`, `name?`, `prop`, `value` | `{ name, prop, value }`, plus `previous` and `changed` — `value` is **read back** after the write, `previous` is the value before it, `changed` compares the two. **Both** are omitted together when the property has no readable getter (or its getter raised), so test for `changed` rather than assuming it |
+| `click` | `form?`, `name`, `mode?`, `count?` | `{ clicked, mode, clicksDispatched }`, plus `posted:true` in message mode, plus `stoppedReason` / `stoppedMessage` when a handler raised |
 | `action` | `form?`, `name` | `{ executed, fromComponent }` |
-| `dialogs` | `button?` | No `button`: `{ windows:[ { hwnd, class, caption, owned, enabled, buttons } … ] }`. With `button`: `{ clicked, dialog }` |
+| `dialogs` | `button?` | No `button`: `{ windows:[ { hwnd, class, caption, owned, enabled, buttons } … ] }`. With `button`: `{ clicked, dialog, dismissed }` — `dismissed` says whether the window actually went away, not merely whether a message was sent |
 | `screenshot` | `area?` | `{ path, width, height, area }` |
-| `dataset` | `form?`, `name`, `fields?` | `{ dataset, active, recordCount, recNo, bof, eof }`, plus `fields` when `fields:true` |
+| `dataset` | `form?`, `name`, `fields?` | `{ dataset, active }` — and, **only when the dataset is open**, `recordCount`, `recNo`, `bof`, `eof`, plus `fields` when `fields:true`. A closed dataset is reported, not an error, so read `active` before the rest |
 | `dataset_op` | `form?`, `name`, `op` | `{ dataset, op, state, recNo }` |
 | `field_get` | `form?`, `name`, `field` | `{ dataset, field, type, isNull, value }` |
 | `field_set` | `form?`, `name`, `field`, `value` | `{ dataset, field, state, isNull, value }` |
@@ -109,6 +121,7 @@ connection and the VCL thread it marshals onto.
 | Field | Command | Accepted values |
 |---|---|---|
 | `mode` | `click` | `direct` (default — calls `OnClick`) or `message` (posts `BM_CLICK` and replies at once). Anything else → `BadMode`. |
+| `count` | `click` | `1` (default) to `CLICK_COUNT_MAX` (1000). Outside that range → `BadCount`. The reply's `clicksDispatched` says how many actually went out, which is fewer than `count` when a handler raised. |
 | `op` | `dataset_op` | `insert`, `append`, `edit`, `post`, `cancel`, `refresh`, `first`, `last`, `next`, `prior`. Lower-cased and trimmed first; anything else → `BadOp`. |
 | `area` | `screenshot` | `virtual` (the whole virtual screen), `window` (the app's active window rect), anything else → the monitor the active window is on. The result's `area` field reports which of `virtual` / `window` / `monitor` was used. |
 
@@ -149,15 +162,21 @@ UTF-8 BOM** — read it with `encoding="utf-8-sig"` or `json.load` throws.
 | `token` | `TGuid.NewGuid.ToString`, regenerated every session |
 | `started` | `DateToISO8601( Now, False )` — local time, no false `Z` |
 
-It is deleted on clean shutdown. A file left behind means the IDE died; the name is the PID, so
-check the process is alive before trusting it.
+It is deleted on clean shutdown. A file left behind means the host died — the name is the PID, so
+check the process is alive before trusting it, and note that a consumer which takes the *first*
+file matching an `app` name will otherwise pick a corpse.
+
+The server also sweeps the directory on startup, deleting any `<pid>.json` whose process is no
+longer running. A PID that has since been reused reads as alive and is left alone, which errs
+towards keeping a stale file rather than deleting a live one.
 
 ---
 
 ## 3. Error codes
 
 Every failure returns `{ id, ok:false, error:{ code, message } }` with a stable `code`. The full
-set, from the `EAutoError.CreateCode` sites and the two pre-dispatch failures:
+set — eighteen from the `EAutoError.CreateCode` / `CreateCodeData` sites, and five the pre-dispatch
+path and the dispatcher emit directly:
 
 | Code | Raised when |
 |---|---|
@@ -170,6 +189,7 @@ set, from the `EAutoError.CreateCode` sites and the two pre-dispatch failures:
 | `NotButton` | `mode=message` on something that is not a button-class control |
 | `NotClickable` | the button is not both visible and enabled |
 | `BadMode` | `click` `mode` is neither `direct` nor `message` |
+| `BadCount` | `click` `count` is below 1 or above `CLICK_COUNT_MAX` |
 | `NoOnClick` | the component has no `OnClick` property at all |
 | `NoHandler` | it has `OnClick` but nothing is assigned to it |
 | `NoAction` | the target is neither a `TBasicAction` nor a control with an assigned `Action` |
@@ -181,7 +201,24 @@ set, from the `EAutoError.CreateCode` sites and the two pre-dispatch failures:
 | `ReadOnlyField` | `field_set` on a read-only field |
 | `BadOp` | `dataset_op` `op` is not in the vocabulary above |
 | `CaptureFailed` | the GDI screen capture failed |
-| `Internal` | any other exception escaping the command |
+| `RequestTooLong` | the request line exceeded `MAX_REQUEST_BYTES` (1 MB); the connection is closed after the reply |
+| `Internal` | any other exception escaping the command — the message is prefixed with the exception class |
+
+A `NoProp` failure additionally carries `error.data`: `{ properties, total, truncated }`, listing
+the published properties the object *does* have, with their live values, capped at `PROPLIST_MAX`
+(100). It is there so a caller that guessed a property name can correct itself without another
+round-trip.
+
+### Every request gets a reply
+
+A well-formed connection is never closed without an answer. That was not always so: until
+2026-09-21 a field of the wrong JSON type — `{"id":"abc"}` was enough — raised inside the envelope
+parsing, which sat outside the dispatcher's own handler, and the exception unwound past the
+marshalling thread into Indy, which closed the socket. The caller saw a dropped connection rather
+than an error, which reads as the server having crashed.
+
+If you do see a connection close with no reply, it is a genuine fault and worth reporting; the one
+deliberate close is `RequestTooLong`, which answers first.
 
 ---
 
@@ -193,15 +230,21 @@ third-party project, so there is nothing to merge from and no divergence to just
 
 What it **is** is a **vendored copy**, and that is the divergence that matters:
 
-- `src\gllIdeAutomation.Server.pas` is vendored from GITLAKLib's `gllAutomationServer`. The unit
-  header states the body is unchanged — only the header, the unit name and one exception message
-  differ — so this package depends on the RTL, the VCL and Indy alone, and **not** on GITLAKLib.
+- `src\gllIdeAutomation.Server.pas` is vendored from GITLAKLib's `gllAutomationServer`, so this
+  package depends on the RTL, the VCL and Indy alone, and **not** on GITLAKLib.
+- **The body is NOT unchanged, and nothing should describe it as such.** It says so itself, at the
+  top of the unit. The fork diverges where the host differs — it runs inside `bds.exe`, not inside
+  an application we ship — and the divergences are the header, the unit name, **two** message
+  literals, the compiler guard, the wording of two comments, and everything marked `FORK` in the
+  source. Those markers are the index: `grep FORK src\gllIdeAutomation.Server.pas`.
 - **The rename is deliberate and must not be undone.** A Delphi unit may exist in only one loaded
   package, so a copy still called `gllAutomationServer` could not load into an IDE that already
   has GITLAKLib installed — which is exactly the machine this was written on.
-- **Nothing keeps the two copies in step automatically.** A fix here should be carried back to
-  GITLAKLib and vice versa. The 2026-09-17 `except`-block fix in `CHANGELOG.md` is an instance of
-  a Pascal Analyzer sweep finding the same defect in both.
+- **Nothing keeps the two copies in step automatically, and they had already drifted.** On
+  2026-09-21 this copy was found 283 lines and one wire version behind, carrying two defects
+  upstream had already fixed; it was re-synced from 0.8 in a commit of its own, so a future merge
+  can see exactly what came from upstream. Everything marked `FORK` is a fix that belongs upstream
+  too, with one stated exception — carry them back rather than letting this happen again.
 - The package deliberately does **not** require `designide`. Nothing here touches the ToolsAPI,
   which is why it is not tied to any particular IDE version's OTA.
 
@@ -379,7 +422,7 @@ Everything ships with Delphi. Clone and build; there is nothing to acquire.
 | `requires` | Needed for |
 |---|---|
 | `rtl` | — |
-| `vcl` | `Screen.CustomForms`, published-property access, `TAction` |
+| `vcl` | `Screen.Forms`, published-property access, `TAction` |
 | `vclimg` | `Vcl.Imaging.pngimage` — the `screenshot` command |
 | `dbrtl` | `Data.DB` — the `dataset` / `dataset_op` / `field_*` commands |
 | `IndySystem`, `IndyCore` | `TIdTCPServer` — the loopback listener |
@@ -397,6 +440,27 @@ are of little practical use against the IDE itself, but they cost nothing and th
 Loopback only (`127.0.0.1`), and every command must carry the per-session GUID token from
 `C:\ProgramData\GITLAK\Automation\<pid>.json`. Another local process cannot drive the IDE without
 reading that file. There is no remote surface.
+
+**The token file's permissions are therefore the real control, and the default ACL does not
+provide them.** `C:\ProgramData` grants `BUILTIN\Users` read, and that is inherited all the way
+down, so a discovery directory created with an ordinary `CreateDirectory` hands the token to every
+account on the machine. Since 1.1.0 the directory is created with an explicit **protected** DACL —
+inheritance broken — naming only `SYSTEM`, `BUILTIN\Administrators` and the account the host
+process runs as.
+
+Two limits worth knowing. An **existing** directory is left exactly as it is: it is shared with the
+rest of the GITLAK tooling and its permissions are the estate's to set, not this package's to
+rewrite underneath whatever else is using it — so the hardening applies from first creation, and
+after anyone deletes the folder. And if the restricted create fails the directory is still created
+with the inherited ACL, because failing to advertise is worse; that fallback announces itself
+through `OutputDebugString` rather than passing silently. To check an existing one:
+
+```powershell
+(Get-Acl 'C:\ProgramData\GITLAK\Automation').Access |
+  Where-Object { $_.IdentityReference -like '*\Users' }
+```
+
+Anything returned there means every local user can read the session token.
 
 That said, this is a development tool: anything that can click buttons and set properties in an
 IDE deserves the suspicion you would apply to a debugger. It is off by default for that reason,

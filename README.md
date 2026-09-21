@@ -11,8 +11,9 @@ Variables: none of that is visible to the compiler, and reading it off screensho
 error-prone. This makes the IDE inspectable instead.
 
 Delphi **10.3 Rio and later**, Win32 or Win64. MIT licensed.
-Current release: **1.0.1** — see [CHANGELOG.md](CHANGELOG.md). (1.0.0 was tagged earlier the same
-day and superseded within hours; take 1.0.1.)
+Current version: **1.1.0** — see [CHANGELOG.md](CHANGELOG.md). It carries wire protocol `0.8`; the
+last tagged release, 1.0.1, carried `0.7`. (1.0.0 was tagged earlier the same day as 1.0.1 and
+superseded within hours; never take 1.0.0.)
 
 Fair warning on that range: it is what the source targets — inline variables set the 10.3 floor,
 and the `$LIBSUFFIX` selection covers 10.3 through 13 — but **13 Florence is the only version it
@@ -24,7 +25,7 @@ On anything older than 13, open the `.dpk` rather than the `.dproj` — see [Ins
 
 | For | Read |
 |---|---|
-| The wire protocol — 13 commands, the argument vocabulary, 21 error codes, and failures by symptom | [Help.md](Help.md) |
+| The wire protocol — 13 commands, the argument vocabulary, 23 error codes, and failures by symptom | [Help.md](Help.md) |
 | Doing a job — start the gated IDE, connect, read a form, drive a control | [Users Guide.md](Users%20Guide.md) |
 | What changed and when | [CHANGELOG.md](CHANGELOG.md) |
 
@@ -42,13 +43,16 @@ The IDE now listens on loopback and announces itself in a discovery file. Then, 
 { "id":1, "ok":true, "result":{ "forms":[ {"name":"LocalVarsWindow","class":"TLocalVarsWindow","visible":true}, … ] } }
 ```
 
-48 IDE forms come back on a stock install, including `LocalVarsWindow`, `WatchWindow`,
-`CallStackWindow`, `BPWindow` and `EditWindow_0` — plus the forms of whatever plugins you have,
-since it walks `Screen.CustomForms` rather than knowing anything about the IDE.
+Around 45 IDE forms come back on a stock install — 44 measured on 2026-09-21 — including
+`LocalVarsWindow`, `WatchWindow`, `CallStackWindow`, `BPWindow` and `EditWindow_0`, plus the forms
+of whatever plugins you have, since it walks `Screen.Forms` rather than knowing anything about the
+IDE. Treat the count as indicative: it moves with the IDE version, the installed packages and what
+is open at the time.
 
 Commands: `ping`/`info`, `tree`, `get`, `set`, `click`, `action`, `dialogs`, `screenshot`,
 `dataset`, `dataset_op`, `field_get`, `field_set`. Forms are addressed by name, `"main"` or
-`"active"`; components by their owned name.
+`"active"`; components by their owned name. Every request gets a reply — a malformed one comes back
+as an error carrying your `id`, not as a closed connection.
 
 ## Installing
 
@@ -165,19 +169,25 @@ Issues and patches welcome. Two things worth knowing first:
 ## Provenance
 
 The server unit is vendored from GITLAK Software's internal library, where it was written to
-drive VCL applications for unattended UI testing. Driving the IDE turned out to need no changes
-at all: the IDE is a VCL application, and the unit only ever knew about `Screen.CustomForms` and
-published properties.
+drive VCL applications for unattended UI testing. Most of it needed no changes: the IDE is a VCL
+application, and the unit only ever knew about `Screen.Forms` and published properties.
+
+Not *no* changes, though, and the copy is not a mirror. Where the host differs the fork differs
+with it — most visibly, the upstream version disables any idle timer it finds on every command, to
+stop an application under test logging itself out; here that would only reach into a third-party
+IDE plug-in and switch something off permanently, so it is retained but not called. Every
+fork-specific change is marked `FORK` in the source, and `Help.md` §4 lists them.
 
 It is renamed here (`gllIdeAutomation.Server`) rather than copied verbatim, because a Delphi unit
 may exist in only one loaded package — a copy under the original name could not load alongside
 the library it came from.
 
-## Documentation
+## Generated API documentation
 
-- [docs/Users Guide.md](docs/Users%20Guide.md) - the protocol, the command reference, worked
-  examples, and the scaling trap that catches everyone who clicks.
-- [docs/HELP.md](docs/HELP.md) - short answers for when it is not working.
+The current documents are the two at the repository root, linked at the top of this file. The pair
+under `docs/` — [docs/Users Guide.md](docs/Users%20Guide.md) and [docs/HELP.md](docs/HELP.md) —
+**predates the estate documentation standard and is superseded**; it is kept only because it was
+published under those names. Read the root pair.
 
 API documentation is generated from the units' XML doc comments by
 [DocInsight](https://devjetsoftware.com/docinsight/); `gllIdeAutomation.diproj` is the project that

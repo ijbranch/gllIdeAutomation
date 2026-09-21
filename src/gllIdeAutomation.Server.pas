@@ -87,7 +87,10 @@ uses
   Winapi.Windows, Winapi.Messages, Winapi.MultiMon,
   Data.DB,
   Vcl.Forms, Vcl.Graphics, Vcl.Imaging.pngimage, Vcl.StdCtrls,
-  IdTCPServer, IdContext, IdGlobal, IdException;
+  //  FORK: Winapi.ShlObj + Winapi.KnownFolders resolve the REAL Desktop rather than assuming
+  //  %USERPROFILE%\Desktop; IdIOHandler + IdExceptionCore give the request-line size policy.
+  Winapi.ShlObj, Winapi.KnownFolders, Winapi.ActiveX,
+  IdTCPServer, IdContext, IdGlobal, IdException, IdIOHandler, IdExceptionCore;
 
 const
   /// <summary>First loopback port tried when binding the listener; the constructor scans upward from here.</summary>
@@ -110,6 +113,26 @@ const
   /// <summary>Fixed directory holding per-PID discovery files so an external agent and the app always agree on it regardless of account or %TEMP%.</summary>
   DISCOVERY_DIR        = 'C:\ProgramData\GITLAK\Automation';
 
+  //  FORK: the discovery file carries the session TOKEN, which is the only thing standing
+  //  between a local user and a server that can drive the UI and write datasets. The default
+  //  ACL does NOT protect it: C:\ProgramData grants BUILTIN\Users ReadAndExecute and that is
+  //  inherited all the way down, so a directory created with TDirectory.CreateDirectory hands
+  //  the token to every account on the machine. The leaf is therefore created with an explicit
+  //  PROTECTED DACL - inheritance broken - naming only SYSTEM, the local Administrators group
+  //  and the account the host process is running as.
+  /// <summary>SDDL for the discovery directory: a protected DACL granting full control to SYSTEM (<c>SY</c>), Administrators (<c>BA</c>) and the current user, and to nobody else. <c>%s</c> takes the user's SID.</summary>
+  DISCOVERY_DIR_SDDL   = 'D:P(A;OICI;FA;;;SY)(A;OICI;FA;;;BA)(A;OICI;FA;;;%s)';
+  /// <summary>SDDL revision accepted by <c>ConvertStringSecurityDescriptorToSecurityDescriptor</c>.</summary>
+  SDDL_REVISION_1      = 1;
+
+  //  FORK: Indy's default MaxLineAction is maSplit, which SILENTLY cuts an over-long request
+  //  in two - the first half fails to parse as JSON and the second half is then dispatched as
+  //  if it were a separate request. A bounded length plus a hard failure is diagnosable; a
+  //  split is not. The bound is generous: the largest legitimate request is a `set` carrying a
+  //  memo's text.
+  /// <summary>Largest request line accepted, in bytes; a longer one is refused with <c>RequestTooLong</c> rather than silently split.</summary>
+  MAX_REQUEST_BYTES    = 1024 * 1024;
+
 type
   /// <summary>
   ///   Concrete automation server (one per process). Owns the Indy TCP listener,
@@ -130,6 +153,9 @@ type
     FPort          : Word;
     /// <summary>Full path of this process's discovery file.</summary>
     FDiscoveryPath : string;
+    /// <summary>Indy <c>OnConnect</c> handler: applies this connection's request-line size policy (worker thread).</summary>
+    /// <param name="AContext">The Indy connection context.</param>
+    procedure DoConnect( AContext: TIdContext );
     /// <summary>Indy <c>OnExecute</c> handler: reads one request line, writes the response (worker thread).</summary>
     /// <param name="AContext">The Indy connection context.</param>
     procedure DoExecute( AContext: TIdContext );
@@ -161,9 +187,10 @@ var
 
 { ── Helpers ─────────────────────────────────────────────────────────────── }
 
-/// <summary>Reads the running executable's file version from its version resource.</summary>
+/// <summary>Reads a binary's file version from its version resource.</summary>
+/// <param name="AFileName">Full path of the executable or package to read.</param>
 /// <returns><c>major.minor.release.build</c> (e.g. <c>4.0.0.13</c>), or '' when no version info is present.</returns>
-function GetExeFileVersion: string;
+function GetFileVersionOf( const AFileName: string ): string;
 var
   iHandle : DWORD;
   iSize   : DWORD;
@@ -173,13 +200,13 @@ var
 begin
 
   Result := '';
+  if AFileName = '' then Exit;
 
-  var sExe := ParamStr( 0 );
-  iSize := GetFileVersionInfoSize( PChar( sExe ), iHandle );
+  iSize := GetFileVersionInfoSize( PChar( AFileName ), iHandle );
   if iSize = 0 then Exit;
 
   SetLength( naBuf, iSize );
-  if ( not GetFileVersionInfo( PChar( sExe ), iHandle, iSize, naBuf ) ) then Exit;
+  if ( not GetFileVersionInfo( PChar( AFileName ), iHandle, iSize, naBuf ) ) then Exit;
 
   if VerQueryValue( naBuf, '\', Pointer( pFixed ), iLen ) and ( iLen >= SizeOf( TVSFixedFileInfo ) ) then
     Result := Format( '%d.%d.%d.%d', [ HiWord( pFixed.dwFileVersionMS ), LoWord( pFixed.dwFileVersionMS ),
@@ -187,15 +214,207 @@ begin
 
 end;
 
-/// <summary>Builds a minimal error-response JSON line, used before a request <c>id</c> is known.</summary>
-/// <param name="ACode">Stable machine-readable error code.</param>
-/// <param name="AMessage">Human-readable message (embedded double quotes are replaced with single quotes).</param>
-/// <returns>A one-line JSON object: <c>{"ok":false,"error":{"code":…,"message":…}}</c>.</returns>
-function ErrorJSON( const ACode, AMessage: string ): string;
+/// <summary>Reads the running executable's file version from its version resource.</summary>
+/// <returns><c>major.minor.release.build</c>, or '' when no version info is present.</returns>
+function GetExeFileVersion: string;
 begin
 
-  Result := Format( '{"ok":false,"error":{"code":"%s","message":"%s"}}',
-    [ ACode, StringReplace( AMessage, '"', '''', [ rfReplaceAll ] ) ] );
+  Result := GetFileVersionOf( ParamStr( 0 ) );
+
+end;
+
+/// <summary>
+///   Reads THIS package's own file version, not the host executable's.
+/// </summary>
+/// <returns><c>major.minor.release.build</c> of the loaded BPL, or '' when it carries no version resource.</returns>
+/// <remarks>
+///   FORK: <c>ping</c> used to report only <c>ParamStr( 0 )</c>'s version, which inside the IDE
+///   is <c>bds.exe</c>'s. The whole point of the single-source version in
+///   <c>gllIdeAutomationVersion.rc</c> is to know WHICH build of this package is loaded, and
+///   that was unreportable at run time. <c>HInstance</c> is the package's own module handle.
+/// </remarks>
+function GetPackageFileVersion: string;
+begin
+
+  var naName: array[ 0 .. MAX_PATH ] of Char;
+  var iLen := GetModuleFileName( HInstance, @naName[ 0 ], Length( naName ) );
+  if iLen = 0 then Exit( '' );
+
+  Result := GetFileVersionOf( string( naName ) );
+
+end;
+
+{ ── FORK: discovery-directory hardening and stale-file sweep ─────────────── }
+
+/// <summary>advapi32 import: builds a security descriptor from an SDDL string. Not declared in this RTL's <c>Winapi.Windows</c>.</summary>
+/// <param name="AStringSD">The SDDL text.</param>
+/// <param name="ARevision">Always <c>SDDL_REVISION_1</c>.</param>
+/// <param name="ASD">Receives a LocalAlloc'd security descriptor the caller must <c>LocalFree</c>.</param>
+/// <param name="ASize">Optionally receives its size; may be nil.</param>
+/// <returns>True on success.</returns>
+function ConvertStringSecurityDescriptorToSecurityDescriptorW( AStringSD: PWideChar; ARevision: DWORD;
+  var ASD: Pointer; ASize: PULONG ): BOOL; stdcall; external 'advapi32.dll';
+
+/// <summary>advapi32 import: renders a SID in its <c>S-1-…</c> string form.</summary>
+/// <param name="ASid">The SID to convert.</param>
+/// <param name="AStringSid">Receives a LocalAlloc'd string the caller must <c>LocalFree</c>.</param>
+/// <returns>True on success.</returns>
+function ConvertSidToStringSidW( ASid: PSID; var AStringSid: PWideChar ): BOOL; stdcall; external 'advapi32.dll';
+
+/// <summary>Returns the SID of the account this process is running as, in <c>S-1-…</c> string form.</summary>
+/// <returns>The SID string, or '' when the token cannot be read.</returns>
+function CurrentUserSidString: string;
+begin
+
+  Result := '';
+
+  var hToken: THandle := 0;
+  if not OpenProcessToken( GetCurrentProcess, TOKEN_QUERY, hToken ) then Exit;
+  try
+
+    var iNeeded: DWORD := 0;
+    GetTokenInformation( hToken, TokenUser, nil, 0, iNeeded );   // sizing call; expected to fail
+    if iNeeded = 0 then Exit;
+
+    var naBuf: TBytes;
+    SetLength( naBuf, iNeeded );
+    if not GetTokenInformation( hToken, TokenUser, Pointer( naBuf ), iNeeded, iNeeded ) then Exit;
+
+    var pSid: PWideChar := nil;
+    if not ConvertSidToStringSidW( PTokenUser( naBuf )^.User.Sid, pSid ) then Exit;
+    try
+      Result := string( pSid );
+    finally
+      LocalFree( HLOCAL( pSid ) );
+    end;
+
+  finally
+    CloseHandle( hToken );
+  end;
+
+end;
+
+/// <summary>
+///   Creates the discovery directory with a protected DACL naming only SYSTEM, Administrators
+///   and the current account, so the session token it will hold is not readable by every local
+///   user. Does nothing when the directory already exists.
+/// </summary>
+/// <param name="ADir">The directory to create.</param>
+/// <remarks>
+///   An EXISTING directory is left exactly as it is, deliberately: it is shared with the rest
+///   of the GITLAK tooling and its permissions are the estate's to set, not this package's to
+///   rewrite underneath whatever else is using it. The hardening therefore applies from the
+///   moment the directory is first created — including after someone deletes it.
+///   A directory that could not be hardened is still created, because failing to advertise is
+///   worse than advertising with the inherited ACL, but the fallback says so through
+///   <c>OutputDebugString</c> rather than passing silently.
+/// </remarks>
+procedure EnsureDiscoveryDir( const ADir: string );
+begin
+
+  if TDirectory.Exists( ADir ) then Exit;
+
+  //  Parents keep the ordinary inherited ACL; only the leaf that holds tokens is locked down.
+  var sParent := TPath.GetDirectoryName( ADir );
+  if ( sParent <> '' ) and ( not TDirectory.Exists( sParent ) ) then
+    TDirectory.CreateDirectory( sParent );
+
+  var sSid := CurrentUserSidString;
+  if sSid <> '' then
+  begin
+    var pSD: Pointer := nil;
+    if ConvertStringSecurityDescriptorToSecurityDescriptorW(
+         PWideChar( Format( DISCOVERY_DIR_SDDL, [ sSid ] ) ), SDDL_REVISION_1, pSD, nil ) then
+      try
+        var oAttrs: TSecurityAttributes;
+        oAttrs.nLength              := SizeOf( oAttrs );
+        oAttrs.lpSecurityDescriptor := pSD;
+        oAttrs.bInheritHandle       := False;
+        if CreateDirectory( PChar( ADir ), @oAttrs ) then Exit;
+      finally
+        LocalFree( HLOCAL( pSD ) );
+      end;
+  end;
+
+  OutputDebugString( PChar( 'gllIdeAutomation: could not create ' + ADir +
+    ' with a restricted DACL; falling back to the inherited one, which may let other local users read the session token' ) );
+  TDirectory.CreateDirectory( ADir );
+
+end;
+
+/// <summary>Reports whether a process id belongs to a process that is still running.</summary>
+/// <param name="APid">The process id to test.</param>
+/// <returns>True when the process exists; True also when it exists but is not ours to open.</returns>
+/// <remarks>Access-denied means the process is there and belongs to somebody else, so it counts as alive — the safe direction, since the caller deletes what this reports dead.</remarks>
+function ProcessIsAlive( APid: DWORD ): Boolean;
+begin
+
+  var hProc := OpenProcess( SYNCHRONIZE, False, APid );
+  if hProc = 0 then
+    Exit( GetLastError = ERROR_ACCESS_DENIED );
+
+  try
+    //  A process object that is already signalled has exited but is still referenced.
+    Result := WaitForSingleObject( hProc, 0 ) = WAIT_TIMEOUT;
+  finally
+    CloseHandle( hProc );
+  end;
+
+end;
+
+/// <summary>
+///   Deletes discovery files left behind by processes that are no longer running.
+/// </summary>
+/// <param name="ADir">The discovery directory to sweep.</param>
+/// <remarks>
+///   FORK: <c>DeleteDiscovery</c> only runs on an orderly shutdown, so a killed or crashed host
+///   leaves its advertisement behind for ever. Consumers pick the FIRST file whose <c>app</c>
+///   matches — <c>tools/read_pane.py</c> does exactly that — so one stale file is enough to
+///   make a running IDE look unreachable. Best-effort throughout: a file that cannot be read,
+///   parsed or deleted is simply left alone, and a PID that has been reused reads as alive,
+///   which errs towards keeping a file rather than deleting a live one.
+/// </remarks>
+procedure SweepStaleDiscovery( const ADir: string );
+begin
+
+  if not TDirectory.Exists( ADir ) then Exit;
+
+  for var sFile in TDirectory.GetFiles( ADir, '*.json' ) do
+  begin
+
+    //  The file is named for the PID that wrote it, which is the whole liveness test.
+    var iPid := StrToIntDef( TPath.GetFileNameWithoutExtension( sFile ), 0 );
+    if ( iPid <= 0 ) or ( DWORD( iPid ) = GetCurrentProcessId ) then Continue;
+    if ProcessIsAlive( iPid ) then Continue;
+
+    try
+      TFile.Delete( sFile );
+    except
+      //  Locked, ACL-denied or already gone: another host may be sweeping the same directory.
+      //  Narrowed, so a genuine fault still escapes rather than being absorbed here.
+      on EInOutError do ;
+    end;
+
+  end;
+
+end;
+
+/// <summary>Builds a minimal error-response JSON line for a failure that never reached the command dispatcher.</summary>
+/// <param name="ACode">Stable machine-readable error code.</param>
+/// <param name="AMessage">Human-readable message (embedded double quotes are replaced with single quotes).</param>
+/// <param name="AId">The request's <c>id</c>, echoed so the caller can correlate the reply; 0 when the id is not knowable.</param>
+/// <returns>A one-line JSON object: <c>{"id":…,"ok":false,"error":{"code":…,"message":…}}</c>.</returns>
+/// <remarks>
+///   FORK: the <c>id</c> used to be omitted entirely here, so a caller that matches replies to
+///   requests by id could not match ANY authentication or parse failure — the two failures it
+///   most needs to attribute to a particular request. Every reply now carries the field, and
+///   <c>ExecuteCommand</c>'s replies always did.
+/// </remarks>
+function ErrorJSON( const ACode, AMessage: string; AId: Integer = 0 ): string;
+begin
+
+  Result := Format( '{"id":%d,"ok":false,"error":{"code":"%s","message":"%s"}}',
+    [ AId, ACode, StringReplace( AMessage, '"', '''', [ rfReplaceAll ] ) ] );
 
 end;
 
@@ -211,6 +430,7 @@ begin
   FPort    := 0;
 
   FServer := TIdTCPServer.Create( nil );
+  FServer.OnConnect := DoConnect;
   FServer.OnExecute := DoExecute;
 
   // Scan for a free loopback port (Port=0 isn't reliably reflected back by Indy).
@@ -311,7 +531,8 @@ procedure TServerImpl.WriteDiscovery;
 begin
 
   var sDir := DISCOVERY_DIR;
-  TDirectory.CreateDirectory( sDir );
+  EnsureDiscoveryDir( sDir );      // FORK: restricted DACL on first creation - the file holds the token
+  SweepStaleDiscovery( sDir );     // FORK: clear advertisements left by hosts that were killed
 
   FDiscoveryPath := TPath.Combine( sDir, Format( '%d.json', [ GetCurrentProcessId ] ) );
 
@@ -346,10 +567,35 @@ begin
 
 end;
 
+procedure TServerImpl.DoConnect( AContext: TIdContext );
+begin
+
+  //  FORK: see MAX_REQUEST_BYTES. Set per connection, because the IOHandler is per connection.
+  AContext.Connection.IOHandler.MaxLineLength := MAX_REQUEST_BYTES;
+  AContext.Connection.IOHandler.MaxLineAction := maException;
+
+end;
+
 procedure TServerImpl.DoExecute( AContext: TIdContext );
 begin
 
-  var sLine := AContext.Connection.IOHandler.ReadLn( IndyTextEncoding_UTF8 );
+  var sLine := '';
+  try
+    sLine := AContext.Connection.IOHandler.ReadLn( IndyTextEncoding_UTF8 );
+  except
+    //  FORK: an over-long request line. Answer it, then drop the connection: the remainder of
+    //  that line is still in the buffer and anything read from it now would be a fragment
+    //  masquerading as the next request - which is precisely the confusion maSplit causes.
+    on EIdReadLnMaxLineLengthExceeded do
+    begin
+      AContext.Connection.IOHandler.WriteLn(
+        ErrorJSON( 'RequestTooLong', Format( 'request line exceeds %d bytes', [ MAX_REQUEST_BYTES ] ) ),
+        IndyTextEncoding_UTF8 );
+      AContext.Connection.Disconnect;
+      Exit;
+    end;
+  end;
+
   if sLine = '' then Exit;
 
   var sResp := HandleLine( sLine );
@@ -365,6 +611,16 @@ end;
 ///   so it catches the login form's timer and the MainForm's once it exists — no
 ///   per-app MainForm change needed. Only ever runs under <c>/AUTOMATION</c>.
 /// </summary>
+/// <remarks>
+///   FORK: RETAINED BUT NO LONGER CALLED, and it must stay that way in this package. Upstream
+///   invokes it before every VCL command because it drives an APPLICATION that may log itself
+///   out mid-test. This copy is hosted in <c>bds.exe</c>, which has no such timeout, so the
+///   only thing the sweep could achieve here is to reach into a third-party IDE plug-in, set
+///   an <c>Enabled</c> it does not own to False, and never put it back — a permanent,
+///   unannounced change to the user's IDE, made by a tool whose job is to observe it. The
+///   routine is kept so the two copies still read alike and a future host that DOES need it
+///   only has to restore the call.
+/// </remarks>
 procedure DisableIdleTimers;
 begin
 
@@ -396,8 +652,20 @@ begin
 
   var oReq := TJSONObject( oVal );
   try
-    if oReq.GetValue<string>( 'token', '' ) <> FToken then
-      Exit( ErrorJSON( 'Unauthorised', 'bad or missing token' ) );
+    //  FORK: every envelope read below goes through TJSONValue.AsType<T>, which RAISES
+    //  EJSONException when the value is present but of the wrong type - {"id":"abc"} is enough.
+    //  Unhandled, that exception left ExecuteCommand's freshly created result object behind,
+    //  was re-raised on this worker thread by TThread.Synchronize, escaped past the try..finally
+    //  below and reached Indy, which closed the socket. The caller saw a dropped connection
+    //  instead of an error, which reads as the server having crashed. Nothing in this routine
+    //  may now escape without a reply.
+    var iId := 0;
+    oReq.TryGetValue<Integer>( 'id', iId );      // a non-numeric id simply leaves iId at 0
+
+    var sToken := '';
+    oReq.TryGetValue<string>( 'token', sToken );
+    if sToken <> FToken then
+      Exit( ErrorJSON( 'Unauthorised', 'bad or missing token', iId ) );
 
     var sResp := '';
 
@@ -406,28 +674,43 @@ begin
     // loop that never pumps CheckSynchronize, which would deadlock
     // TThread.Synchronize (and we still want to see/answer that dialog). Every
     // other command touches the VCL and is marshalled to the main thread.
-    var sPeekCmd := oReq.GetValue<string>( 'cmd', '' );
-    if SameText( sPeekCmd, 'dialogs' ) or SameText( sPeekCmd, 'screenshot' ) then
-    begin
-      var oResp := ExecuteCommand( oReq );
-      try
-        sResp := oResp.ToJSON;
-      finally
-        oResp.Free;
-      end;
-    end
-    else
-      TThread.Synchronize( nil,
-        procedure
-        begin
-          DisableIdleTimers;            // keep the app alive while an agent drives it
-          var oResp := ExecuteCommand( oReq );
-          try
-            sResp := oResp.ToJSON;
-          finally
-            oResp.Free;
-          end;
-        end );
+    var sPeekCmd := '';
+    oReq.TryGetValue<string>( 'cmd', sPeekCmd );
+
+    //  FORK: whatever happens inside the marshalled block is reported as a response. An
+    //  exception crossing TThread.Synchronize is re-raised HERE, on the worker thread, so
+    //  catching it here covers the main-thread body as well as this one.
+    try
+
+      if SameText( sPeekCmd, 'dialogs' ) or SameText( sPeekCmd, 'screenshot' ) then
+      begin
+        var oResp := ExecuteCommand( oReq );
+        try
+          sResp := oResp.ToJSON;
+        finally
+          oResp.Free;
+        end;
+      end
+      else
+        TThread.Synchronize( nil,
+          procedure
+          begin
+            var oResp := ExecuteCommand( oReq );
+            try
+              sResp := oResp.ToJSON;
+            finally
+              oResp.Free;
+            end;
+          end );
+
+    except
+      //  Deliberately BROAD, and deliberately reported rather than swallowed. Broad because the
+      //  contract is that a request always gets a reply, and the alternative is the silent
+      //  disconnect described above; reported because the class name and message are the only
+      //  evidence a caller would otherwise have of a bridge fault.
+      on E: Exception do
+        Exit( ErrorJSON( 'Internal', Format( '%s: %s', [ E.ClassName, E.Message ] ), iId ) );
+    end;
 
     Result := sResp;
   finally
@@ -614,31 +897,43 @@ end;
 function AutoCmdTree( AReq: TJSONObject ): TJSONValue;
 begin
 
-  if AReq.GetValue<string>( 'form', '' ) = '' then
-  begin
-    var oForms := TJSONArray.Create;
-    for var i := 0 to Screen.FormCount - 1 do
+  //  FORK throughout: the container is created and PARENTED FIRST, then filled. Built the
+  //  other way round, an exception part-way through the loop - CompToJSON reads live published
+  //  properties, so a getter can raise - abandoned an array that nothing owned yet, and the
+  //  caller never got the object either, because the assignment to Result had not happened.
+  var oRes := TJSONObject.Create;
+  try
+
+    if AReq.GetValue<string>( 'form', '' ) = '' then
     begin
-      var oFrm := TJSONObject.Create;
-      oFrm.AddPair( 'name', Screen.Forms[ i ].Name );
-      oFrm.AddPair( 'class', Screen.Forms[ i ].ClassName );
-      oFrm.AddPair( 'visible', TJSONBool.Create( Screen.Forms[ i ].Visible ) );
-      oForms.AddElement( oFrm );
+      var oForms := TJSONArray.Create;
+      oRes.AddPair( 'forms', oForms );
+      for var i := 0 to Screen.FormCount - 1 do
+      begin
+        var oFrm := TJSONObject.Create;
+        oForms.AddElement( oFrm );
+        oFrm.AddPair( 'name', Screen.Forms[ i ].Name );
+        oFrm.AddPair( 'class', Screen.Forms[ i ].ClassName );
+        oFrm.AddPair( 'visible', TJSONBool.Create( Screen.Forms[ i ].Visible ) );
+      end;
+      Exit( oRes );
     end;
-    Result := TJSONObject.Create;
-    TJSONObject( Result ).AddPair( 'forms', oForms );
-    Exit;
+
+    var oForm := AutoResolveForm( AReq );
+    oRes.AddPair( 'form', oForm.Name );
+    oRes.AddPair( 'class', oForm.ClassName );
+
+    var oComps := TJSONArray.Create;
+    oRes.AddPair( 'components', oComps );
+    for var i := 0 to oForm.ComponentCount - 1 do
+      oComps.AddElement( CompToJSON( oForm.Components[ i ] ) );
+
+    Result := oRes;
+
+  except
+    oRes.Free;
+    raise;
   end;
-
-  var oForm := AutoResolveForm( AReq );
-  var oComps := TJSONArray.Create;
-  for var i := 0 to oForm.ComponentCount - 1 do
-    oComps.AddElement( CompToJSON( oForm.Components[ i ] ) );
-
-  Result := TJSONObject.Create;
-  TJSONObject( Result ).AddPair( 'form', oForm.Name );
-  TJSONObject( Result ).AddPair( 'class', oForm.ClassName );
-  TJSONObject( Result ).AddPair( 'components', oComps );
 
 end;
 
@@ -1086,21 +1381,27 @@ begin
 
     if sButton = '' then
     begin
-      var oArr := TJSONArray.Create;
-      for var hw in tops do
-      begin
-        var oD := TJSONObject.Create;
-        oD.AddPair( 'hwnd', TJSONNumber.Create( IntPtr( hw ) ) );
-        oD.AddPair( 'class', WndClass( hw ) );
-        oD.AddPair( 'caption', WndText( hw ) );
-        oD.AddPair( 'owned', TJSONBool.Create( GetWindow( hw, GW_OWNER ) <> 0 ) );
-        oD.AddPair( 'enabled', TJSONBool.Create( IsWindowEnabled( hw ) ) );
-        oD.AddPair( 'buttons', ButtonsOf( hw ) );
-        oArr.AddElement( oD );
+      //  FORK: parented before filling, for the reason given in AutoCmdTree.
+      var oRes := TJSONObject.Create;
+      try
+        var oArr := TJSONArray.Create;
+        oRes.AddPair( 'windows', oArr );
+        for var hw in tops do
+        begin
+          var oD := TJSONObject.Create;
+          oArr.AddElement( oD );
+          oD.AddPair( 'hwnd', TJSONNumber.Create( IntPtr( hw ) ) );
+          oD.AddPair( 'class', WndClass( hw ) );
+          oD.AddPair( 'caption', WndText( hw ) );
+          oD.AddPair( 'owned', TJSONBool.Create( GetWindow( hw, GW_OWNER ) <> 0 ) );
+          oD.AddPair( 'enabled', TJSONBool.Create( IsWindowEnabled( hw ) ) );
+          oD.AddPair( 'buttons', ButtonsOf( hw ) );
+        end;
+      except
+        oRes.Free;
+        raise;
       end;
-      Result := TJSONObject.Create;
-      TJSONObject( Result ).AddPair( 'windows', oArr );
-      Exit;
+      Exit( oRes );
     end;
 
     var sWant := Trim( StringReplace( sButton, '&', '', [ rfReplaceAll ] ) );
@@ -1411,6 +1712,24 @@ begin
 
 end;
 
+/// <summary>Returns the user's real Desktop directory.</summary>
+/// <returns>The Desktop path from the known-folder API, falling back to <c>%USERPROFILE%\Desktop</c> only if that call fails.</returns>
+/// <remarks>FORK: see the call site — <c>%USERPROFILE%\Desktop</c> is wrong wherever the Desktop is redirected, and silently so.</remarks>
+function DesktopFolder: string;
+begin
+
+  var pPath: PWideChar := nil;
+  if Succeeded( SHGetKnownFolderPath( FOLDERID_Desktop, 0, 0, pPath ) ) and ( pPath <> nil ) then
+    try
+      Exit( string( pPath ) );
+    finally
+      CoTaskMemFree( pPath );
+    end;
+
+  Result := TPath.Combine( GetEnvironmentVariable( 'USERPROFILE' ), 'Desktop' );
+
+end;
+
 /// <summary>Picks this process's most relevant window to capture: an active modal dialog (owned + enabled) if one is up, else the largest visible top-level form. The hidden <c>TApplication</c> window is ignored. Background-thread safe (pure Win32).</summary>
 /// <returns>The chosen window handle, or <c>0</c> if none.</returns>
 function FindAppWindow: HWND;
@@ -1506,7 +1825,14 @@ begin
     end;
 
     // Saved to the user's Desktop for easy viewing.
-    var sPath := Format( '%s\Desktop\%s-%u.png', [ GetEnvironmentVariable( 'USERPROFILE' ), AAppName, GetTickCount ] );
+    //
+    //  FORK: resolved through the KNOWN FOLDER, not built from %USERPROFILE%. The Desktop is
+    //  routinely redirected (OneDrive does it by default), and the old path did not merely
+    //  miss - CaptureRect calls ForceDirectories, so it would CREATE a second, empty
+    //  %USERPROFILE%\Desktop and drop the PNG into a folder the user never looks at, while
+    //  reporting success. GetTickCount64 because the 32-bit counter wraps every 49 days and
+    //  the tick is the only thing keeping the filenames apart.
+    var sPath := Format( '%s\%s-%u.png', [ DesktopFolder, AAppName, GetTickCount64 ] );
 
     if not CaptureRect( rc, sPath ) then
       raise EAutoError.CreateCode( 'CaptureFailed', 'screen capture failed' );
@@ -1527,27 +1853,40 @@ begin
 
   Result := TJSONObject.Create;
 
-  var iId  := AReq.GetValue<Integer>( 'id', 0 );
-  var sCmd := AReq.GetValue<string>( 'cmd', '' );
+  //  FORK: TryGetValue, not GetValue. GetValue<T> routes to TJSONValue.AsType<T>, which raises
+  //  when the field is present but of the wrong type - and these two reads sit OUTSIDE the
+  //  try below, so the raise escaped with this object already allocated. A wrongly typed id or
+  //  cmd is a bad request, not a reason to abandon the connection: default them and let the
+  //  dispatcher answer UnknownCmd.
+  var iId := 0;
+  AReq.TryGetValue<Integer>( 'id', iId );
+
+  var sCmd := '';
+  AReq.TryGetValue<string>( 'cmd', sCmd );
+
   Result.AddPair( 'id', TJSONNumber.Create( iId ) );
 
   try
     if SameText( sCmd, 'ping' ) or SameText( sCmd, 'info' ) then
     begin
 
+      //  Added to Result first, so an exception while filling it cannot leak the object.
       var oRes := TJSONObject.Create;
+      Result.AddPair( 'ok', TJSONBool.Create( True ) );
+      Result.AddPair( 'result', oRes );
+
       oRes.AddPair( 'app', FAppName );
       oRes.AddPair( 'pid', TJSONNumber.Create( GetCurrentProcessId ) );
       oRes.AddPair( 'version', GetExeFileVersion );
       oRes.AddPair( 'exe', ParamStr( 0 ) );
+      //  FORK: the HOST's version is not this package's. Report both, so a caller can tell
+      //  which build of gllIdeAutomation is loaded - see GetPackageFileVersion.
+      oRes.AddPair( 'package', GetPackageFileVersion );
       if Assigned( Application.MainForm ) then
         oRes.AddPair( 'mainForm', Application.MainForm.Name )
       else
         oRes.AddPair( 'mainForm', TJSONNull.Create );
       oRes.AddPair( 'server', SERVER_VERSION );
-
-      Result.AddPair( 'ok', TJSONBool.Create( True ) );
-      Result.AddPair( 'result', oRes );
     end
     else if SameText( sCmd, 'tree' ) then
     begin

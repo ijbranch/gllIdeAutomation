@@ -4,13 +4,17 @@ usage: python click.py X Y [--double] [--right] [--activate PID]
 
 Two traps, both learned the hard way on this machine:
 
-1. DISPLAY SCALING. Ian runs 150%, so the physical desktop is 7680x2160 while a DPI-unaware
-   process - which is what python.exe and the screen-capturing PowerShell both are - sees a
-   virtualised 5120x1440. SetCursorPos and GetSystemMetrics are virtualised to match, and so are
-   the screenshots. SendInput's MOUSEEVENTF_ABSOLUTE coordinates are NOT: they are physical.
-   Normalising against the virtualised metrics therefore lands every click at two thirds of the
-   intended position. So: position with SetCursorPos (virtualised, matches the screenshots) and
-   send the button events with no coordinates at all.
+1. DISPLAY SCALING. There are two coordinate spaces on a scaled display, and this script works
+   entirely in the PHYSICAL one. It declares PER_MONITOR_AWARE_V2 before touching the cursor,
+   which puts SetCursorPos into physical coordinates and so matches CopyFromScreen screenshots
+   1:1 - see the comment on the SetProcessDpiAwarenessContext call below, which is where the
+   measurement lives. Without that declaration SetCursorPos is virtualised while the screenshots
+   are not, the two differ by exactly the scale factor, and every click lands short. Position
+   with SetCursorPos and send the button events with NO coordinates at all: SendInput's
+   MOUSEEVENTF_ABSOLUTE coordinates follow different rules again, and are not needed here.
+
+   Do not copy a pixel figure out of this file. The scaling on this machine has changed more than
+   once; the rule is to re-measure, never to rescale a recorded coordinate.
 
 2. A HUMAN USING THE MOUSE. Bare button events apply wherever the cursor is at that instant. If
    someone moves the mouse between the move and the click, the click lands in their window. So

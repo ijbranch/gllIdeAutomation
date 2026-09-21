@@ -6,10 +6,36 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Added
 
+- **`ping`/`info` reports `package`, this package's OWN version** (2026-09-21) —
+  `src\gllIdeAutomation.Server.pas`, `Help.md`. `version` has always been `ParamStr( 0 )`'s, which
+  inside the IDE is `bds.exe`'s — measured on the live IDE, `37.0.60952.8797`. So the single-source
+  version in `gllIdeAutomationVersion.rc`, and the whole `VerInfo_IncludeVerInfo=false` apparatus
+  that exists to keep it single, could not be read at run time at all: there was no way to tell
+  which build of `gllIdeAutomation` an IDE had loaded. `GetPackageFileVersion` reads the version
+  resource of `HInstance`, which in a package is the BPL itself. Verified live: `"package":"1.1.0.0"`
+  alongside `"version":"37.0.60952.8797"`. **Carry back to GITLAKLib.**
+- **Stale discovery files are swept at startup** (2026-09-21) —
+  `src\gllIdeAutomation.Server.pas`, `Help.md`. `DeleteDiscovery` runs only on an orderly shutdown,
+  so a host that was killed or crashed left its `<pid>.json` advertisement behind for ever.
+  Consumers take the **first** file whose `app` matches — `tools/read_pane.py` does exactly that —
+  so a single corpse is enough to make a running IDE look unreachable. `SweepStaleDiscovery` now
+  deletes any `<pid>.json` whose process is gone; a PID that has since been reused reads as alive
+  and is kept, which errs towards keeping a stale file rather than deleting a live one.
+  Verified twice against a live IDE, once with a planted `999123.json` and once with a genuine
+  leftover from a previous run. **Carry back to GITLAKLib.**
+- **A request-line size limit, and the `RequestTooLong` error code** (2026-09-21) —
+  `src\gllIdeAutomation.Server.pas`, `Help.md`. Indy's default `MaxLineAction` is `maSplit`, which
+  silently cuts an over-long request in two: the first half fails to parse as JSON and the second
+  half is then dispatched **as if it were a separate request**. `MAX_REQUEST_BYTES` (1 MB) plus
+  `maException` makes that a diagnosable failure instead. The reply is written before the
+  connection is dropped, because the remainder of the line is still buffered and anything read
+  from it would be a fragment masquerading as the next request. Verified with a 2 MB line.
+  **Carry back to GITLAKLib.**
+
 - **`Help.md` and `Users Guide.md`, to the estate documentation standard** (2026-09-18).
   `Help.md` carries both flavours: the Pascal surface is tiny (`TAutomationServer.Start` /
   `Stop` / `IsRunning` / `Port`), but the API people actually write against is the **wire
-  protocol** — 13 commands, a fixed argument vocabulary and 21 stable error codes — which is a
+  protocol** — 13 commands, a fixed argument vocabulary and 23 stable error codes — which is a
   lookup table by any measure, plus failures by symptom since the package is consumed as-is.
   `Users Guide.md` is task-ordered: start the gated IDE, connect, read a form, drive a control.
   **The two structural limits are documented with their mechanism**, not just asserted: `get`
@@ -23,25 +49,121 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Fixed
 
-- **`README.md` and the `Starter.pas` docstring claim `Screen.CustomForms`; the code uses
-  `Screen.Forms`** (2026-09-18) — recorded here, written correctly in the new documents. All
-  four enumeration sites use `Screen.FormCount` / `Screen.Forms`. `Screen.Forms` is a strict
-  **subset** of `Screen.CustomForms`, so the documents claim a broader reach than the code has.
-- **`docs/Users Guide.md` lists a `dataset_op` value that does not exist** (2026-09-18). Its
-  table gives "insert / append / edit / post / cancel / refresh / **navigate**", and the Server
-  unit header uses the same shorthand. `AutoCmdDatasetOp` accepts `insert`, `append`, `edit`,
-  `post`, `cancel`, `refresh`, `first`, `last`, `next`, `prior`; `"op":"navigate"` returns
-  `BadOp`.
-- **The coordinate tables in `README.md` and `docs/` are written at the OLD 150% scaling**
-  (2026-09-18) — 5120x1440, which stopped being true on 2026-09-14. The new documents give the
-  coordinate guidance with no scale factor or pixel figures, because a recorded coordinate must
-  be re-measured rather than rescaled.
+- **The vendored body was 283 lines and one wire version behind GITLAKLib, with two live bugs;
+  re-synced from `gllAutomationServer` 0.8** (2026-09-21) — `src\gllIdeAutomation.Server.pas`.
+  The unit header asserted the body was "unchanged - only this header, the unit name and one
+  exception message differ". It was not: this copy sat at `SERVER_VERSION` **0.7** against
+  upstream's **0.8**, 1425 lines against 1709. Nothing keeps the two in step and nothing had.
+  The two that were **defects, not missing features**:
+  - **The port-scan `except` was bare here.** Upstream narrowed it to `on EIdException do ;` so
+    that a genuine fault — an access violation, a bad configuration — is no longer disguised as a
+    busy port and retried silently against 200 addresses, leaving only the misleading
+    `no free loopback port in range`. That narrowing had never been carried across.
+  - **A `dialogs` click could not dismiss a styled button, and reported success anyway.** A
+    custom-drawn control keeps a window class containing `button`, so the search finds it, but its
+    window procedure does not implement `BM_CLICK` — the send succeeds while nothing happens.
+    Upstream falls back to `WM_LBUTTONDOWN`/`WM_LBUTTONUP` at the client-rect centre, then polls
+    `IsWindow` for up to `DISMISS_WAIT_MS` and reports `dismissed`. **This one matters most
+    precisely here**, because the host is `bds.exe`, which is full of styled dialogs.
+  Also brought across: `click` `count` / `clicksDispatched` / `stoppedReason`, `set` `previous` /
+  `changed`, and `NoProp` carrying the object's property surface in `error.data`. All three
+  verified against the live IDE — `previous:"Delphi 13 (64-bit)"`, and a `NoProp` reply listing 59
+  properties with `total` / `truncated`.
+  The header now says what actually diverges, and every fork-only change is marked `FORK` in the
+  source so the next re-sync can find them. `Help.md` §4 and `README.md`'s Provenance section
+  repeated the old "unchanged body" claim — §4 asserted it in the very words the unit header now
+  forbids, and README said driving the IDE "turned out to need no changes at all" — so both were
+  rewritten to describe the divergence and point at the `FORK` markers. The re-sync itself is a
+  separate commit, deliberately, so a future merge can diff against exactly the upstream state.
+- **A wrongly typed envelope field dropped the connection with no reply** (2026-09-21) —
+  `src\gllIdeAutomation.Server.pas`, `Help.md`. `GetValue<T>` routes to `TJSONValue.AsType<T>`,
+  which **raises** when a field is present but of the wrong type — `{"id":"abc"}` was enough. Both
+  envelope reads sat outside `ExecuteCommand`'s own `try`, so the raise escaped with the response
+  object already allocated (leaking it), was re-raised on the Indy worker by `TThread.Synchronize`,
+  passed the `try..finally` in `HandleLine`, and reached Indy, which closed the socket. The caller
+  saw a dropped connection rather than an error, which reads as the server having crashed.
+  `DisableIdleTimers`, being inside the marshalled block but outside any handler, had the same
+  reach. Now: `TryGetValue` for the envelope, a broad-but-**reported** handler around the
+  marshalled call, and every reply carries the `id`. Verified live — four previously fatal
+  requests (`id` a string, `cmd` an object, `token` a number, a bad token) all now answer, and the
+  probe reports **0 dropped connections**. **Carry back to GITLAKLib.**
+- **The discovery directory is created with a restricted DACL** (2026-09-21) —
+  `src\gllIdeAutomation.Server.pas`, `Help.md`. The discovery file holds the session token, which
+  is the only thing between a local user and a server that can drive the UI and write datasets —
+  and the code asserted nothing about its permissions. Measured: `C:\ProgramData` grants
+  `BUILTIN\Users` `ReadAndExecute`, inherited by `C:\ProgramData\GITLAK`, so a directory created
+  with `TDirectory.CreateDirectory` hands the token to every account on the machine. (The live
+  folder on this machine happened to have had its inheritance broken **out of band** — nothing in
+  this repository did that, and deleting the folder would have lost it.) `EnsureDiscoveryDir` now
+  creates the leaf with a protected DACL naming only `SYSTEM`, `BUILTIN\Administrators` and the
+  host's own account. An **existing** directory is deliberately left alone — it is shared with the
+  rest of the GITLAK tooling — and a failed hardening still creates the directory but says so
+  through `OutputDebugString` instead of passing silently. The SDDL was verified to produce
+  exactly that ACL, with the current user still able to write. **Carry back to GITLAKLib.**
+- **The screenshot path assumed `%USERPROFILE%\Desktop`** (2026-09-21) —
+  `src\gllIdeAutomation.Server.pas`. The Desktop is routinely redirected (OneDrive does it by
+  default), and the failure was not a miss but something worse: `CaptureRect` calls
+  `ForceDirectories`, so the old path would **create** a second, empty `%USERPROFILE%\Desktop` and
+  drop the PNG into a folder the user never opens, while reporting success. Now resolved through
+  `SHGetKnownFolderPath( FOLDERID_Desktop )`, falling back to the old path only if that fails.
+  `GetTickCount64` replaces `GetTickCount` in the filename, whose 32-bit counter wraps every 49
+  days and is the only thing keeping the names apart. Not reproducible on this machine — the
+  Desktop here is not redirected — so this is a latent fault fixed on inspection, not a measured
+  one. **Carry back to GITLAKLib.**
+- **`tree` and `dialogs` leaked their result on an error path** (2026-09-21) —
+  `src\gllIdeAutomation.Server.pas`. Both built a `TJSONArray` that nothing owned yet and filled it
+  before parenting it, so an exception part-way through — `CompToJSON` reads live published
+  properties, and a getter can raise — abandoned the array, while the caller never received the
+  object either because the assignment to `Result` had not happened. Both now create and parent
+  first, under `try..except oRes.Free; raise;`. Bounded, but this runs inside an IDE that stays
+  open for days. **Carry back to GITLAKLib.**
+- **`DisableIdleTimers` is no longer called in this host** (2026-09-21) —
+  `src\gllIdeAutomation.Server.pas`. Upstream runs it before every VCL command because it drives
+  an **application** that may log itself out mid-test. `bds.exe` has no such timeout, so the only
+  thing the sweep could achieve here was to reach into a third-party IDE plug-in, set an `Enabled`
+  it does not own to `False`, and never put it back — a permanent, unannounced change to the
+  user's IDE, made by a tool whose entire job is to observe it. The routine is retained, and
+  documented as retained, so the two copies still read alike. **This one is FORK-ONLY — do not
+  carry it back**, since it is correct upstream.
+- **A bare `CR` inside `CHANGELOG.md` swallowed a heading** (2026-09-21). `### Fixed` and the
+  bullet after it were joined by a lone `\r` rather than a `CRLF`, so the whole 2026-08-26
+  C++Builder paragraph rendered as one `<h3>`. A repository-wide scan found this to be the only
+  such character in any tracked `.md`, `.pas`, `.py`, `.ps1`, `.rc` or project file.
+  **This file's line endings are now uniform, and that is most of this commit's `CHANGELOG.md`
+  diff.** It was the one tracked file whose *stored* blob carried literal `CRLF` — 188 of them
+  against 37 bare `LF`, a mix, which is how a lone `CR` survived unnoticed. Every other file is
+  stored as `LF` and converted on checkout by `core.autocrlf=true`. Normalising costs ~180 lines
+  of whitespace-only churn once and stops the file being a special case; it is recorded here so
+  nobody mistakes it for lost content.
+- **`README.md` claimed `Screen.CustomForms`; the code uses `Screen.Forms`** (2026-09-18,
+  corrected and actually fixed 2026-09-21) — `README.md`, `Help.md`, `docs/Users Guide.md`.
+  `Screen.Forms` is a strict **subset** of `Screen.CustomForms`, so the documents claimed a
+  broader reach than the code has. Now corrected at all five sites, including `Help.md`'s
+  `requires` table, which contradicted `Help.md`'s own §2 two hundred lines earlier, and
+  `docs/Users Guide.md`, which additionally said the walk is over `TControl`/`TWinControl` when
+  `CompToJSON` takes a `TComponent`.
+  **Two errors in the original entry, both corrected here:** it named the `Starter.pas` docstring
+  as a second offender — that unit contains no occurrence of `CustomForms` and never did — and it
+  said "all four enumeration sites" when there are **three** `Screen.FormCount` loops
+  (`AutoCmdTree` twice over, `AutoResolveForm`, `DisableIdleTimers`); the fourth `Screen.`
+  reference is `Screen.ActiveForm`, which enumerates nothing.
+- **`docs/Users Guide.md` listed a `dataset_op` value that does not exist** (2026-09-18,
+  **actually fixed 2026-09-21**). Its table gave "insert / append / edit / post / cancel /
+  refresh / **navigate**", and the Server unit header used the same shorthand. `AutoCmdDatasetOp`
+  accepts `insert`, `append`, `edit`, `post`, `cancel`, `refresh`, `first`, `last`, `next`,
+  `prior`; `"op":"navigate"` returns `BadOp`. The 2026-09-18 entry recorded this under **Fixed**
+  while leaving both the table row and the unit header untouched — they are corrected now.
+- **The coordinate tables in `README.md` and `docs/` quote 150% scaling** (2026-09-18, superseded
+  2026-09-21). The original entry called them stale because the scaling changed on 2026-09-14; it
+  went **back to 150% on 2026-09-20**, so the figures happen to be correct again. Neither fact is
+  worth relying on. The root documents deliberately give the coordinate guidance with no scale
+  factor or pixel figures at all, because a recorded coordinate must be re-measured, never
+  rescaled — and `tools/click.py` now says so in its own docstring.
 - **A pre-standard pair survives at `docs/HELP.md` and `docs/Users Guide.md`** (2026-09-18) —
-  wrong location and wrong capitalisation. Left in place; the new root `Help.md` says they
-  predate the standard. Whether to delete them or reduce them to a redirect is a decision, not
-  a tidy-up.
-
-### Fixed
+  wrong location and wrong capitalisation. Left in place; the root `Help.md` says they predate
+  the standard, and as of 2026-09-21 `README.md` says so too instead of presenting them as the
+  current documentation under a second, anchor-colliding `## Documentation` heading. Whether to
+  delete them or reduce them to a redirect is a decision, not a tidy-up.
 
 - **Two `except` blocks no longer hide what went wrong, matching the fix already made in
   `gllAutomationServer`** (2026-09-17) - `src\gllIdeAutomation.Server.pas`. This unit is a sibling of
@@ -66,6 +188,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Changed
 
+- **Version raised to 1.1.0.0** (2026-09-21) — `gllIdeAutomationVersion.rc`. A minor bump rather
+  than a build bump, because the wire contract moved: `SERVER_VERSION` 0.7 → 0.8, `ping` gained a
+  field, and two error codes were added. `tools/bump-build.py --show` confirms the numeric defines
+  and `VER_STRING` agree, and the built Release BPL reports `1.1.0.0` for both `FileVersion` and
+  `ProductVersion`.
+
 - Project platforms normalised to Win32 + Win64 only in 1 `.dproj` file (2026-09-10)
   Non-Windows targets (`Android`, `Android64`, `iOS*`, `OSX*`, `Linux64`) and the
   `Win64x` / `WinARM64EC` variants were removed together with their `Base_<Plat>` and
@@ -85,9 +213,15 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [In-Service]
 
-> Libraries and packages are continuously deployed: changes below are live as soon as the package is rebuilt and installed - there is no separate release step, so no `[Unreleased]` backlog. Tagged version snapshots are listed beneath.
+> Libraries and packages are continuously deployed: changes below were live as soon as the package was rebuilt and installed. Tagged version snapshots are listed beneath.
+>
+> This section is the historical record kept under that model. `## [Unreleased]` above is the
+> current one — the note here used to claim there was no `[Unreleased]` backlog while one sat at
+> the top of the same file, which was simply wrong. New entries go under `## [Unreleased]`.
 
-### Fixed- **C++Builder output turned off** (2026-08-26). `DCC_CBuilderOutput` was `All`, so every build emitted `.hpp` / `.bpi` / `.a` / `.obj` files for a compiler that is **never in scope here** (standing rule: "I dont use C++ at all"). Across the estate that was 616 files and 90 MB of output nobody consumes, regenerated on every build; `gllSynEdit` alone accounted for 560. Now `None`. The `DCC_HppOutput` / `DCC_BpiOutput` / `DCC_ObjOutput` properties are left in place deliberately - they only say *where* such files would go, so with generation off they are inert, and removing them would enlarge the diff without changing behaviour. Verified: the affected packages rebuilt clean in every enabled mode, emitted no C++ artefacts, and rebuilt clean again after the existing ones were deleted (so nothing was load-bearing).
+### Fixed
+
+- **C++Builder output turned off** (2026-08-26). `DCC_CBuilderOutput` was `All`, so every build emitted `.hpp` / `.bpi` / `.a` / `.obj` files for a compiler that is **never in scope here** (standing rule: "I dont use C++ at all"). Across the estate that was 616 files and 90 MB of output nobody consumes, regenerated on every build; `gllSynEdit` alone accounted for 560. Now `None`. The `DCC_HppOutput` / `DCC_BpiOutput` / `DCC_ObjOutput` properties are left in place deliberately - they only say *where* such files would go, so with generation off they are inert, and removing them would enlarge the diff without changing behaviour. Verified: the affected packages rebuilt clean in every enabled mode, emitted no C++ artefacts, and rebuilt clean again after the existing ones were deleted (so nothing was load-bearing).
 
 - Debug and Release package output no longer collide (2026-08-24)
   **Why:** RAD Studio defaults `DCC_BplOutput` to `$(BDSCOMMONDIR)\Bpl\$(Platform)` and `DCC_DcpOutput` to `\Dcp\$(Platform)`, neither carrying `$(Config)`, so whichever configuration was built last was the one left installed. `.dcu` output was already separated, which masked it.
@@ -220,6 +354,6 @@ information on the BPL, a `tools/Start-IDE.ps1` hard-coded to one Delphi install
 invisible control characters in a doc comment that stopped the documentation building. Left in
 place rather than moved, because it was already published and genuinely was that code.
 
-[Unreleased]: https://codeberg.org/GITLAK-forks/gllIdeAutomation/compare/v1.0.1...main
-[1.0.1]: https://codeberg.org/GITLAK-forks/gllIdeAutomation/src/tag/v1.0.1
-[1.0.0]: https://codeberg.org/GITLAK-forks/gllIdeAutomation/src/tag/v1.0.0
+[Unreleased]: https://github.com/ijbranch/gllIdeAutomation/compare/v1.0.1...main
+[1.0.1]: https://github.com/ijbranch/gllIdeAutomation/releases/tag/v1.0.1
+[1.0.0]: https://github.com/ijbranch/gllIdeAutomation/releases/tag/v1.0.0
