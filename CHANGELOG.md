@@ -31,8 +31,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   breakpoint in `TMainForm.FormShow`, every row matched what the IDE displayed:** Call Stack
   22 of 22 frames in 721 ms, more than fit on screen, so the page walk was exercised. Local
   Variables 4 of 4 (`Self`, `Sender`, `E`, `__frame`) in 124 ms. Watch empty, as it was. Each read
-  was `complete`, with no notes. `GetNodeLevel` was called through RTTI without failing, but every
-  row was top-level, so **nested levels (an expanded `Self`) are not yet exercised.**
+  was `complete`, with no notes. **With `Self` expanded, nesting matched too:** 39 rows (4 at level
+  0, 35 at level 1: `TCustomForm` … `sJobNumber`) in 1,057 ms, with levels read through
+  `GetNodeLevel` via RTTI. Names the pane truncates (`TCustomF`, `FShuttingI`) come back whole,
+  because the text comes from the IDE's handler, not from the pixels.
 
 - **`ping`/`info` reports `package`, this package's OWN version** (2026-09-21) —
   `src\gllIdeAutomation.Server.pas`, `Help.md`. `version` has always been `ParamStr( 0 )`'s, which
