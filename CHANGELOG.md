@@ -27,9 +27,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   with zero hints. Verified live in the 64-bit IDE:** all three panes hooked and restored with the
   IDE responsive throughout. It read header captions (`Name`/`Value`, `Watch Name`/`Value`) and
   real cell text (the Call Stack's "Process is not accessible", 23 of 23 rows in 17 ms), and
-  reported empty panes as `complete` with no rows. **Not yet proven:** reading frames and locals from
-  a paused debugger, and node levels through `GetNodeLevel`, because in every live run the program
-  was still running.
+  reported empty panes as `complete` with no rows. **Then, with the debugger paused at a
+  breakpoint in `TMainForm.FormShow`, every row matched what the IDE displayed:** Call Stack
+  22 of 22 frames in 721 ms, more than fit on screen, so the page walk was exercised. Local
+  Variables 4 of 4 (`Self`, `Sender`, `E`, `__frame`) in 124 ms. Watch empty, as it was. Each read
+  was `complete`, with no notes. `GetNodeLevel` was called through RTTI without failing, but every
+  row was top-level, so **nested levels (an expanded `Self`) are not yet exercised.**
 
 - **`ping`/`info` reports `package`, this package's OWN version** (2026-09-21) —
   `src\gllIdeAutomation.Server.pas`, `Help.md`. `version` has always been `ParamStr( 0 )`'s, which
