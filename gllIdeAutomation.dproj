@@ -108,6 +108,7 @@
         <DCCReference Include="IndyCore.dcp"/>
         <DCCReference Include="src\gllIdeAutomation.Server.pas"/>
         <DCCReference Include="src\gllIdeAutomation.Starter.pas"/>
+        <DCCReference Include="src\gllIdeAutomation.TreeText.pas"/>
         <RcCompile Include="gllIdeAutomationVersion.rc">
             <Form>gllIdeAutomationVersion.res</Form>
         </RcCompile>

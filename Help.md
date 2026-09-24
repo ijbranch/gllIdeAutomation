@@ -112,6 +112,7 @@ Read out of `TServerImpl.ExecuteCommand` and the `AutoCmd*` functions.
 | `dataset_op` | `form?`, `name`, `op` | `{ dataset, op, state, recNo }` |
 | `field_get` | `form?`, `name`, `field` | `{ dataset, field, type, isNull, value }` |
 | `field_set` | `form?`, `name`, `field`, `value` | `{ dataset, field, state, isNull, value }` |
+| `tree_text` | `form?`, `name`, `max?` | `{ name, class, columns, rows:[ { level, cells } … ], rowsRead, rootCount, complete, notes }` — every **displayed** row of a virtual tree, in display order. `columns` are the header captions by column index; `cells` are indexed the same way, trailing empty cells dropped; `level` is the nesting depth, `-1` if unreadable. `complete:false` always comes with a note saying why. **Fork-only** — see [§4](#4-scope-of-this-fork) |
 
 There is no `wait` command. Polling is a client concern; a blocking wait would hold the
 connection and the VCL thread it marshals onto.
@@ -122,6 +123,7 @@ connection and the VCL thread it marshals onto.
 |---|---|---|
 | `mode` | `click` | `direct` (default — calls `OnClick`) or `message` (posts `BM_CLICK` and replies at once). Anything else → `BadMode`. |
 | `count` | `click` | `1` (default) to `CLICK_COUNT_MAX` (1000). Outside that range → `BadCount`. The reply's `clicksDispatched` says how many actually went out, which is fewer than `count` when a handler raised. |
+| `max` | `tree_text` | Row limit, default `2000`; clamped to `1`..`100000`. Reaching it ends the read with `complete:false` and a note. |
 | `op` | `dataset_op` | `insert`, `append`, `edit`, `post`, `cancel`, `refresh`, `first`, `last`, `next`, `prior`. Lower-cased and trimmed first; anything else → `BadOp`. |
 | `area` | `screenshot` | `virtual` (the whole virtual screen), `window` (the app's active window rect), anything else → the monitor the active window is on. The result's `area` field reports which of `virtual` / `window` / `monitor` was used. |
 
@@ -201,6 +203,11 @@ path and the dispatcher emit directly:
 | `ReadOnlyField` | `field_set` on a read-only field |
 | `BadOp` | `dataset_op` `op` is not in the vocabulary above |
 | `CaptureFailed` | the GDI screen capture failed |
+| `NotVirtualTree` | `tree_text` on a control that is not a `TBaseVirtualTree` descendant (judged by class name) |
+| `NoWindow` | `tree_text` on a tree with no window handle yet |
+| `NotOnScreen` | `tree_text` on a tree whose window is not visible — a hidden pane, or a visible tree inside a hidden parent. Its text only exists while it paints, so show the window first |
+| `NoGetText` | `tree_text` on a tree with no `OnGetText` event, or none assigned — nothing supplies its text |
+| `SignatureMismatch` | `tree_text` on a tree whose `OnGetText` type, read from RTTI, is not the shape the reader stands in for. The message quotes the actual declaration. Nothing was hooked |
 | `RequestTooLong` | the request line exceeded `MAX_REQUEST_BYTES` (1 MB); the connection is closed after the reply |
 | `Internal` | any other exception escaping the command — the message is prefixed with the exception class |
 
@@ -245,6 +252,11 @@ What it **is** is a **vendored copy**, and that is the divergence that matters:
   upstream had already fixed; it was re-synced from 0.8 in a commit of its own, so a future merge
   can see exactly what came from upstream. Everything marked `FORK` is a fix that belongs upstream
   too, with one stated exception — carry them back rather than letting this happen again.
+- **`tree_text` exists only here** (2026-09-25), in its own unit, `src\gllIdeAutomation.TreeText.pas`,
+  so the vendored body carries only the dispatch branch and `AutoCmdTreeText`, both marked `FORK`.
+  It is the stated exception above: nothing goes back to GITLAKLib, because no application we ship
+  carries a virtual tree. The technique is Thomas Mueller's, from `TREETEXT` in GxInspect, the
+  GExperts inspection server — re-implemented here, not copied; the unit header says so.
 - The package deliberately does **not** require `designide`. Nothing here touches the ToolsAPI,
   which is why it is not tied to any particular IDE version's OTA.
 
@@ -367,16 +379,54 @@ is simply no discovery file.
   owned components.
 - `NoProp` — the property is not published. This is the usual wall; see the next entry.
 
-### `get` cannot read the debugger panes — and this is structural
+### `get` cannot read the debugger panes — use `tree_text`
 
-**Local Variables, Watch and the Structure pane are `TVirtualStringTree`. Their cell text is not
-a published property, and neither is the selection.** No amount of `get` will reach it, because
-the server reads published properties through RTTI and there is nothing published to read.
+**Local Variables, Watch, Call Stack and the Structure pane are `TVirtualStringTree`. Their cell
+text is not a published property, and neither is the selection.** No amount of `get` will reach
+it: a virtual tree holds no text at all, it asks its `OnGetText` handler for each cell as it
+paints.
 
-The way round is that the panes' popup menu items *are* addressable components: select a row with
-a real mouse click, then fire Copy Value and read the clipboard. `tools/read_pane.py` does exactly
-that. The two panes do not share naming — Locals has `lvCopyValue` / `lvCopyName`, Watch has
-`CopyWatchValue` / `CopyWatchName` — so confirm with `tree` rather than assuming symmetry.
+**`tree_text` reads it anyway**, by standing in front of that handler for one read: it walks the
+tree a page at a time so every displayed row paints, records what the real handler answers, puts
+the handler back and returns the tree to its scroll position. Measured 2026-09-25 against the
+running IDE, the three panes are plain `TVirtualStringTree` - not IDE subclasses - each with
+`OnGetText`:
+
+| Pane | `form` | `name` |
+|---|---|---|
+| Local Variables | `LocalVarsWindow` | `LocalsTreeView` |
+| Watch | `WatchWindow` | `WatchTree` |
+| Call Stack | `CallStackWindow` | `CallStackTree` |
+
+**Check that the debugger is actually paused before reading.** `get` on the `AppBuilder` form's
+`Caption` shows the state, e.g. `… [Stopped]` or `… [Running]`. While the program runs, the Call
+Stack holds only the IDE's "Process is not accessible" line, and Local Variables and Watch are
+empty. `tree_text` reports that faithfully, so it looks like a failed read when it is not.
+
+Three things it cannot do, by construction:
+
+- **It reads displayed rows only.** A collapsed node's children are never painted, so expand the
+  node first. `rootCount` is the tree's own count of top-level rows, and a read with fewer rows
+  than that is reported `complete:false`.
+- **The pane must be on screen** (`NotOnScreen` otherwise). Windows paints nothing into a hidden
+  window. For a docked pane on a hidden tab, bring its tab forward.
+- **It scrolls the pane visibly** while it reads. Harmless, but do not mistake it for the IDE
+  misbehaving.
+
+Before hooking anything it checks the event's signature against RTTI and refuses with
+`SignatureMismatch` if the IDE's VirtualTrees ever changes it, because a mismatch would not be a
+compile error but corrupted text or an access violation inside the IDE's paint. **That check has
+already earned its keep:** the first live run, on 2026-09-25, refused all three panes, because the
+64-bit Delphi 13 IDE declares the cell text `var CellText: WideString`, not `string` as current
+VirtualTrees does. A `WideString` is a COM BSTR, and reading it as a reference-counted `string`
+gets the length wrong and writes a reference count into memory that is not a string header. The
+reader now takes either shape and installs the handler that matches what RTTI reports.
+
+The older way round still works and is kept as a fallback: the panes' popup menu items *are*
+addressable components, so select a row with a real mouse click, fire Copy Value and read the
+clipboard (`tools/read_pane.py`). The two panes do not share naming — Locals has `lvCopyValue` /
+`lvCopyName`, Watch has `CopyWatchValue` / `CopyWatchName`. It needs screen coordinates, which is
+exactly what `tree_text` avoids.
 
 ### Copy Value produces nothing
 

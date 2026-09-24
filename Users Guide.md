@@ -326,13 +326,32 @@ cursor positions.** See section 12.
 
 ## 11. Read the debugger panes
 
-`get` cannot read Local Variables or the Watch window, and this is structural rather than a gap
-to be filled: both are `TVirtualStringTree`, and neither their cell text nor their selection is a
-published property. The server reads published properties through RTTI, so there is nothing for
-it to read.
+`get` cannot read Local Variables, Watch or Call Stack: all three are `TVirtualStringTree`, and
+neither their cell text nor their selection is a published property. A virtual tree holds no text
+at all; it asks its `OnGetText` handler for each cell as it paints.
 
-What *is* addressable is each pane's popup menu items. So the route is: select a row with a real
-mouse click, fire Copy Value, read the clipboard.
+**Use `tree_text`.** It stands in front of that handler for one read, makes the pane paint every
+displayed row, and returns what the real handler answered:
+
+```json
+{ "token":"…", "id":3, "cmd":"tree_text", "form":"WatchWindow", "name":"WatchTree" }
+```
+
+| Pane | `form` | `name` |
+|---|---|---|
+| Local Variables | `LocalVarsWindow` | `LocalsTreeView` |
+| Watch | `WatchWindow` | `WatchTree` |
+| Call Stack | `CallStackWindow` | `CallStackTree` |
+
+From Claude Code the same thing is `app_tree_text`. Expand a node before reading if you want its
+children, since collapsed rows are never painted, and make sure the pane is on screen: a hidden
+pane answers `NotOnScreen` rather than an empty list.
+
+### The fallback: Copy Value
+
+Each pane's popup menu items are addressable too. So the older route is: select a row with a real
+mouse click, fire Copy Value, read the clipboard. It needs screen coordinates, which `tree_text`
+does not.
 
 ```
 python tools\read_pane.py 300 1335

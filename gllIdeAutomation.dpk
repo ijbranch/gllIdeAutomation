@@ -27,6 +27,7 @@ requires
 
 contains
   gllIdeAutomation.Server in 'src\gllIdeAutomation.Server.pas',
-  gllIdeAutomation.Starter in 'src\gllIdeAutomation.Starter.pas';
+  gllIdeAutomation.Starter in 'src\gllIdeAutomation.Starter.pas',
+  gllIdeAutomation.TreeText in 'src\gllIdeAutomation.TreeText.pas';
 
 end.

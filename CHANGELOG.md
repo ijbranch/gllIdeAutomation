@@ -6,6 +6,31 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Added
 
+- **`tree_text` reads the debugger panes: Local Variables, Watch and Call Stack** (2026-09-25) —
+  `src\gllIdeAutomation.TreeText.pas`, `src\gllIdeAutomation.Server.pas`, `gllIdeAutomation.dpk`,
+  `gllIdeAutomation.dproj`, `Help.md`, `README.md`, `Users Guide.md`. `get` could never reach them:
+  a `TVirtualStringTree` holds no text and asks its `OnGetText` handler for each cell as it paints,
+  so the only route was `tools\read_pane.py`, one row per real mouse click at screen coordinates.
+  `tree_text` stands in front of `OnGetText` for one read, walks the tree a page at a time so every
+  displayed row paints, records what the real handler answers, then restores the handler and the
+  scroll position. It returns `{ level, cells }` per row, the header captions, the tree's own
+  `rootCount`, and `complete` with a note whenever that is false. Before hooking, it checks the
+  event's signature against RTTI and refuses with `SignatureMismatch` rather than risk an access
+  violation inside the IDE's paint. That check caught a real mismatch on the first live run: the 64-bit
+  IDE's VirtualTrees passes the cell text as `var WideString`, not `var string`, so the reader now
+  installs whichever of the two handler shapes RTTI reports. Five new error codes: `NotVirtualTree`, `NoWindow`,
+  `NotOnScreen`, `NoGetText`, `SignatureMismatch`. Measured against the running IDE first: all
+  three panes are plain `TVirtualStringTree` with `OnGetText`, not IDE subclasses that could supply
+  text some other way. **The technique is Thomas Mueller's**, from `TREETEXT` in GxInspect, the
+  GExperts inspection server; this is a re-implementation, credited in the unit header. Fork-only:
+  nothing goes back to GITLAKLib, whose applications carry no virtual tree. **Built in four modes
+  with zero hints. Verified live in the 64-bit IDE:** all three panes hooked and restored with the
+  IDE responsive throughout. It read header captions (`Name`/`Value`, `Watch Name`/`Value`) and
+  real cell text (the Call Stack's "Process is not accessible", 23 of 23 rows in 17 ms), and
+  reported empty panes as `complete` with no rows. **Not yet proven:** reading frames and locals from
+  a paused debugger, and node levels through `GetNodeLevel`, because in every live run the program
+  was still running.
+
 - **`ping`/`info` reports `package`, this package's OWN version** (2026-09-21) —
   `src\gllIdeAutomation.Server.pas`, `Help.md`. `version` has always been `ParamStr( 0 )`'s, which
   inside the IDE is `bds.exe`'s — measured on the live IDE, `37.0.60952.8797`. So the single-source

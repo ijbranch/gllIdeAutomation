@@ -90,7 +90,9 @@ uses
   //  FORK: Winapi.ShlObj + Winapi.KnownFolders resolve the REAL Desktop rather than assuming
   //  %USERPROFILE%\Desktop; IdIOHandler + IdExceptionCore give the request-line size policy.
   Winapi.ShlObj, Winapi.KnownFolders, Winapi.ActiveX,
-  IdTCPServer, IdContext, IdGlobal, IdException, IdIOHandler, IdExceptionCore;
+  IdTCPServer, IdContext, IdGlobal, IdException, IdIOHandler, IdExceptionCore,
+  //  FORK: tree_text reads a virtual tree's displayed text - the IDE's debugger panes.
+  Vcl.Controls, gllIdeAutomation.TreeText;
 
 const
   /// <summary>First loopback port tried when binding the listener; the constructor scans upward from here.</summary>
@@ -890,6 +892,79 @@ begin
 end;
 
 { ── Phase-2 commands ────────────────────────────────────────────────────── }
+
+/// <summary>
+///   FORK: <c>tree_text</c> command: every displayed row of a virtual tree - the IDE's Local Variables,
+///   Watch and Call Stack panes, whose text <c>get</c> cannot reach because a virtual tree publishes none.
+/// </summary>
+/// <param name="AReq">The request object (<c>form?</c>, <c>name</c>, <c>max?</c> - the row limit).</param>
+/// <returns><c>{ name, class, columns, rows:[ { level, cells } ], rowsRead, rootCount, complete, notes }</c>.</returns>
+/// <exception cref="EAutoError">
+///   <c>NoForm</c> / <c>NoComp</c> when the target is not found; <c>BadRequest</c> when <c>name</c> is missing or
+///   names a non-control; otherwise the reader's own refusal code - <c>NotVirtualTree</c>, <c>NoWindow</c>,
+///   <c>NotOnScreen</c>, <c>NoGetText</c> or <c>SignatureMismatch</c>.
+/// </exception>
+function AutoCmdTreeText( AReq: TJSONObject ): TJSONValue;
+begin
+
+  if AReq.GetValue<string>( 'name', '' ) = '' then
+    raise EAutoError.CreateCode( 'BadRequest', 'tree_text needs "name": the tree control on the form' );
+
+  var oForm := AutoResolveForm( AReq );
+  var oComp := AutoResolveComp( AReq, oForm );
+  if not ( oComp is TControl ) then
+    raise EAutoError.CreateCode( 'BadRequest', Format( '%s is a %s, not a control', [ oComp.Name, oComp.ClassName ] ) );
+
+  var iMax := TREE_TEXT_DEFAULT_MAX_ROWS;
+  AReq.TryGetValue<Integer>( 'max', iMax );
+
+  var rRead: TTreeTextResult;
+  try
+    rRead := ReadTreeText( TControl( oComp ), iMax );
+  except
+    on E: ETreeTextRefused do
+      raise EAutoError.CreateCode( E.Code, E.Message );
+  end;
+
+  var oRes := TJSONObject.Create;
+  try
+    oRes.AddPair( 'name', oComp.Name );
+    oRes.AddPair( 'class', oComp.ClassName );
+
+    var oColumns := TJSONArray.Create;
+    oRes.AddPair( 'columns', oColumns );
+    for var sColumn in rRead.Columns do
+      oColumns.Add( sColumn );
+
+    var oRows := TJSONArray.Create;
+    oRes.AddPair( 'rows', oRows );
+    for var rRow in rRead.Rows do
+    begin
+      var oRow := TJSONObject.Create;
+      oRows.AddElement( oRow );
+      oRow.AddPair( 'level', TJSONNumber.Create( rRow.Level ) );
+      var oCells := TJSONArray.Create;
+      oRow.AddPair( 'cells', oCells );
+      for var sCell in rRow.Cells do
+        oCells.Add( sCell );
+    end;
+
+    oRes.AddPair( 'rowsRead', TJSONNumber.Create( Length( rRead.Rows ) ) );
+    oRes.AddPair( 'rootCount', TJSONNumber.Create( rRead.RootCount ) );
+    oRes.AddPair( 'complete', TJSONBool.Create( rRead.Complete ) );
+
+    var oNotes := TJSONArray.Create;
+    oRes.AddPair( 'notes', oNotes );
+    for var sNote in rRead.Notes do
+      oNotes.Add( sNote );
+
+    Result := oRes;
+  except
+    oRes.Free;
+    raise;
+  end;
+
+end;
 
 /// <summary><c>tree</c> command: with no <c>"form"</c> key, a shallow list of all open forms; with a <c>"form"</c>, that form's owned components (one level) with their key props.</summary>
 /// <param name="AReq">The request object.</param>
@@ -1945,6 +2020,13 @@ begin
     else if SameText( sCmd, 'dataset' ) then
     begin
       var oOut := AutoCmdDataset( AReq );
+      Result.AddPair( 'ok', TJSONBool.Create( True ) );
+      Result.AddPair( 'result', oOut );
+    end
+    else if SameText( sCmd, 'tree_text' ) then
+    begin
+      //  FORK: see AutoCmdTreeText.
+      var oOut := AutoCmdTreeText( AReq );
       Result.AddPair( 'ok', TJSONBool.Create( True ) );
       Result.AddPair( 'result', oOut );
     end

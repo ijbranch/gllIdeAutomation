@@ -25,7 +25,7 @@ On anything older than 13, open the `.dpk` rather than the `.dproj` — see [Ins
 
 | For | Read |
 |---|---|
-| The wire protocol — 13 commands, the argument vocabulary, 23 error codes, and failures by symptom | [Help.md](Help.md) |
+| The wire protocol — 14 commands, the argument vocabulary, 28 error codes, and failures by symptom | [Help.md](Help.md) |
 | Doing a job — start the gated IDE, connect, read a form, drive a control | [Users Guide.md](Users%20Guide.md) |
 | What changed and when | [CHANGELOG.md](CHANGELOG.md) |
 
@@ -50,7 +50,7 @@ IDE. Treat the count as indicative: it moves with the IDE version, the installed
 is open at the time.
 
 Commands: `ping`/`info`, `tree`, `get`, `set`, `click`, `action`, `dialogs`, `screenshot`,
-`dataset`, `dataset_op`, `field_get`, `field_set`. Forms are addressed by name, `"main"` or
+`dataset`, `dataset_op`, `field_get`, `field_set`, `tree_text`. Forms are addressed by name, `"main"` or
 `"active"`; components by their owned name. Every request gets a reply — a malformed one comes back
 as an error carrying your `id`, not as a closed connection.
 
@@ -94,9 +94,21 @@ reason.
 
 ## Reading the debugger panes
 
-`get` cannot read Local Variables or the Watch window: both are `TVirtualStringTree` and their
-cell text is not a published property. The panes' popup menu items *are* addressable, so the way
-round is to select a row and fire "Copy Value":
+`get` cannot read Local Variables, Watch or Call Stack: they are `TVirtualStringTree`, which holds
+no text of its own and asks its `OnGetText` handler for each cell as it paints. **`tree_text` reads
+them anyway**, by standing in front of that handler while it makes the pane paint every row:
+
+```json
+{ "token":"…", "id":2, "cmd":"tree_text", "form":"LocalVarsWindow", "name":"LocalsTreeView" }
+```
+
+The reply is every displayed row as `{ level, cells }`, with the header captions and a `complete`
+flag. No coordinates, no clicks. Only displayed rows are read, so expand a node to read its
+children, and the pane has to be on screen. The technique is Thomas Mueller's, from `TREETEXT` in
+GxInspect, the GExperts inspection server; see [Help.md](Help.md) for the details.
+
+The older route is kept as a fallback. The panes' popup menu items *are* addressable, so select a
+row and fire "Copy Value":
 
 ```
 python tools/read_pane.py 300 1335
