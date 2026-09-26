@@ -218,6 +218,19 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Changed
 
+- **The `tree_text` `WideString` finding is IDE-wide, not 64-bit-only — confirmed upstream** (2026-09-27)
+  — `CHANGELOG.md`, `Help.md`, `src\gllIdeAutomation.TreeText.pas` (a doc comment only). No code change. Thomas Mueller closed our GExperts
+  `TREETEXT` report as fixed in **GxInspect r5813** (GxInspect now lives in its own svn branch,
+  `https://svn.code.sf.net/p/gexperts/code/GxInspect/trunk`, pulled into GExperts as an external).
+  He measured the event's type information in the 64-bit and 32-bit Delphi 13.2 IDEs and in
+  Delphi 2007: all declare `var CellText: WideString`, because the IDE carries its own older
+  VirtualTrees (`Idevirtualtrees` in `vclide<ver>.bpl`). The 2026-09-25 entry above describes it as
+  "the 64-bit IDE's VirtualTrees"; the 32-bit IDE is the same. He also confirmed that a mismatched
+  handler is fatal rather than cosmetic: forcing a `string` handler in the 64-bit IDE raised "Invalid
+  pointer operation" from `System.@UStrClr` / `@FreeMem` inside `DoGetText`, and the IDE had to be
+  killed. Nothing to change here, because `SignatureMismatch` already chooses the handler shape from
+  type information rather than bitness and refuses anything else. He reached the same design
+  independently, using the classic TypInfo `ParamList` instead of `System.Rtti`.
 - **Version raised to 1.1.0.0** (2026-09-21) — `gllIdeAutomationVersion.rc`. A minor bump rather
   than a build bump, because the wire contract moved: `SERVER_VERSION` 0.7 → 0.8, `ping` gained a
   field, and two error codes were added. `tools/bump-build.py --show` confirms the numeric defines

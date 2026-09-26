@@ -130,6 +130,8 @@ type
   /// <summary>
   ///   The same event with the cell text a <c>var WideString</c> - the shape the Delphi 13 IDE's own
   ///   VirtualTrees uses, measured 2026-09-25 on all three debugger panes of the 64-bit IDE.
+  ///   Every IDE declares it this way, 32-bit included (Thomas Mueller, GxInspect r5813): the IDE
+  ///   ships an older VirtualTrees of its own, <c>Idevirtualtrees</c> in <c>vclide&lt;ver&gt;.bpl</c>.
   ///   A <c>WideString</c> is a COM BSTR and a <c>string</c> is a reference-counted UnicodeString;
   ///   the characters coincide but the headers do not, so reading one as the other gets the length
   ///   wrong and writes a reference count into memory that is not a string header.

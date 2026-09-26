@@ -422,6 +422,13 @@ VirtualTrees does. A `WideString` is a COM BSTR, and reading it as a reference-c
 gets the length wrong and writes a reference count into memory that is not a string header. The
 reader now takes either shape and installs the handler that matches what RTTI reports.
 
+**This applies to every IDE, not only the 64-bit one.** Thomas Mueller, who fixed the same issue in
+GxInspect (r5813, 2026-09-27), measured the 64-bit and 32-bit Delphi 13.2 IDEs and Delphi 2007. All
+three declare `WideString`, because the IDE carries its own older copy of VirtualTrees
+(`Idevirtualtrees` in `vclide<ver>.bpl`). He also showed that a mismatch is fatal, not cosmetic: a
+`string` handler forced into the 64-bit IDE raised "Invalid pointer operation" from
+`System.@UStrClr` and the IDE had to be killed.
+
 The older way round still works and is kept as a fallback: the panes' popup menu items *are*
 addressable components, so select a row with a real mouse click, fire Copy Value and read the
 clipboard (`tools/read_pane.py`). The two panes do not share naming — Locals has `lvCopyValue` /
