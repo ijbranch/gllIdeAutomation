@@ -61,7 +61,55 @@ unit gllIdeAutomation.Server;
 
 interface
 
+uses
+  System.SysUtils, System.JSON;
+
 type
+  /// <summary>Command-level failure carrying a stable machine-readable code.</summary>
+  /// <remarks>
+  ///   FORK: declared in the interface so that a command registered through
+  ///   <see cref="TAutomationServer.RegisterCommand"/> can fail with a code of its own, exactly as a
+  ///   built-in command does.
+  /// </remarks>
+  EAutoError = class( Exception )
+  public
+    /// <summary>Stable error code surfaced in the response's <c>error.code</c> (e.g. <c>NoForm</c>, <c>NoProp</c>).</summary>
+    Code: string;
+    /// <summary>
+    ///   Optional machine-readable payload copied into the response's <c>error.data</c>
+    ///   (e.g. the writable-property list carried by a <c>NoProp</c> failure, so the
+    ///   caller can self-correct without a second round-trip). Owned by the exception.
+    /// </summary>
+    Data: TJSONValue;
+    /// <summary>Creates the error with a machine code and a human message.</summary>
+    /// <param name="ACode">The stable error code.</param>
+    /// <param name="AMsg">The human-readable message.</param>
+    constructor CreateCode( const ACode, AMsg: string );
+    /// <summary>Creates the error with a machine code, a human message, and an owned <c>error.data</c> payload.</summary>
+    /// <param name="ACode">The stable error code.</param>
+    /// <param name="AMsg">The human-readable message.</param>
+    /// <param name="AData">The payload; ownership passes to the exception (freed with it).</param>
+    constructor CreateCodeData( const ACode, AMsg: string; AData: TJSONValue );
+    /// <summary>Frees the owned <c>Data</c> payload.</summary>
+    destructor Destroy; override;
+  end;
+
+  /// <summary>Which thread a registered command's handler is called on.</summary>
+  TAutomationCommandThread = (
+    /// <summary>Marshalled to the main VCL thread, like every built-in VCL command.</summary>
+    actMainThread,
+    /// <summary>
+    ///   Called on the connection's worker thread. For a handler that must WAIT for the main thread
+    ///   to do something - it synchronises each step itself and sleeps between them, which a handler
+    ///   running on the main thread could not do without stopping the very thing it waits for.
+    /// </summary>
+    actWorkerThread );
+
+  /// <summary>A command added from outside this unit.</summary>
+  /// <param name="ARequest">The whole parsed request; read arguments from it, never free it.</param>
+  /// <returns>The <c>result</c> value; ownership passes to the server. Fail by raising <see cref="EAutoError"/>.</returns>
+  TAutomationCommand = reference to function( ARequest: TJSONObject ): TJSONValue;
+
   /// <summary>
   ///   Static facade controlling the singleton automation server. Call
   ///   <c>Start</c> once at app startup (after Application.Initialize) when the
@@ -69,6 +117,18 @@ type
   /// </summary>
   TAutomationServer = class
   public
+    /// <summary>
+    ///   Adds a command to the dispatcher (FORK). Built-in commands are matched first, so a registered
+    ///   name can never shadow one. Registering the same name again replaces the earlier handler.
+    /// </summary>
+    /// <param name="AName">The command name, matched without regard to case.</param>
+    /// <param name="AHandler">The handler.</param>
+    /// <param name="AThread">The thread the handler is called on.</param>
+    class procedure RegisterCommand( const AName: string; const AHandler: TAutomationCommand;
+      AThread: TAutomationCommandThread = actMainThread );
+    /// <summary>Removes a registered command (FORK); unknown names are ignored.</summary>
+    /// <param name="AName">The command name.</param>
+    class procedure UnregisterCommand( const AName: string );
     /// <summary>Starts the loopback automation server (idempotent).</summary>
     class procedure Start( const AAppName: string );
     /// <summary>Stops and frees the server (idempotent).</summary>
@@ -82,7 +142,7 @@ type
 implementation
 
 uses
-  System.SysUtils, System.Classes, System.JSON, System.IOUtils, System.DateUtils,
+  System.Classes, System.IOUtils, System.DateUtils,
   System.TypInfo, System.Variants, System.Generics.Collections,
   Winapi.Windows, Winapi.Messages, Winapi.MultiMon,
   Data.DB,
@@ -100,7 +160,7 @@ const
   /// <summary>Number of consecutive ports probed from <c>AUTOMATION_PORT_BASE</c> before the bind attempt is abandoned.</summary>
   AUTOMATION_PORT_SPAN = 200;    // ports to try before giving up
   /// <summary>Wire-protocol/feature version reported by the <c>ping</c>/<c>info</c> command's <c>server</c> field; bump when commands change.</summary>
-  SERVER_VERSION       = '0.8';  // + click count/stoppedReason · set changed/previous · NoProp carries availableProperties
+  SERVER_VERSION       = '0.9';  // + registered commands (FORK) · 0.8: click count/stoppedReason · set changed/previous
   /// <summary>Upper bound on <c>click</c>'s <c>count</c> (a mistyped count must not lock the UI thread for minutes).</summary>
   CLICK_COUNT_MAX      = 1000;
   /// <summary>Upper bound on the property list returned with a <c>NoProp</c> failure; the reply is read by an agent, so it stays bounded.</summary>
@@ -183,9 +243,41 @@ type
     property Port: Word read FPort;
   end;
 
+  /// <summary>A command added through <c>TAutomationServer.RegisterCommand</c> (FORK).</summary>
+  TRegisteredCommand = record
+    /// <summary>The handler.</summary>
+    Handler : TAutomationCommand;
+    /// <summary>The thread it is called on.</summary>
+    Thread  : TAutomationCommandThread;
+  end;
+
 var
   /// <summary>The process-wide automation-server singleton (<c>nil</c> when stopped).</summary>
   GImpl: TServerImpl = nil;
+  /// <summary>
+  ///   FORK: commands registered from outside, keyed by lower-cased name. Read on worker threads and
+  ///   written on the main thread, so every access holds the dictionary's own monitor.
+  /// </summary>
+  GCommands: TDictionary<string, TRegisteredCommand> = nil;
+
+/// <summary>Looks up a registered command (FORK).</summary>
+/// <param name="AName">The command name as the request gave it.</param>
+/// <param name="ACommand">Receives the command when found.</param>
+/// <returns>True when the name is registered.</returns>
+function FindRegisteredCommand( const AName: string; out ACommand: TRegisteredCommand ): Boolean;
+begin
+
+  Result := False;
+  if ( AName = '' ) or ( GCommands = nil ) then Exit;
+
+  System.TMonitor.Enter( GCommands );
+  try
+    Result := GCommands.TryGetValue( LowerCase( AName ), ACommand );
+  finally
+    System.TMonitor.Exit( GCommands );
+  end;
+
+end;
 
 { ── Helpers ─────────────────────────────────────────────────────────────── }
 
@@ -684,7 +776,13 @@ begin
     //  catching it here covers the main-thread body as well as this one.
     try
 
-      if SameText( sPeekCmd, 'dialogs' ) or SameText( sPeekCmd, 'screenshot' ) then
+      //  FORK: a registered command declares its own thread. One that waits on the main thread
+      //  (a debugger step, say) has to run here, since waiting there would block what it awaits.
+      var rReg: TRegisteredCommand;
+      var bOnWorker := SameText( sPeekCmd, 'dialogs' ) or SameText( sPeekCmd, 'screenshot' ) or
+        ( FindRegisteredCommand( sPeekCmd, rReg ) and ( rReg.Thread = actWorkerThread ) );
+
+      if bOnWorker then
       begin
         var oResp := ExecuteCommand( oReq );
         try
@@ -722,31 +820,6 @@ begin
 end;
 
 { ── Phase-2 drive / introspect helpers ──────────────────────────────────── }
-
-type
-  /// <summary>Command-level failure carrying a stable machine-readable code.</summary>
-  EAutoError = class( Exception )
-  public
-    /// <summary>Stable error code surfaced in the response's <c>error.code</c> (e.g. <c>NoForm</c>, <c>NoProp</c>).</summary>
-    Code: string;
-    /// <summary>
-    ///   Optional machine-readable payload copied into the response's <c>error.data</c>
-    ///   (e.g. the writable-property list carried by a <c>NoProp</c> failure, so the
-    ///   caller can self-correct without a second round-trip). Owned by the exception.
-    /// </summary>
-    Data: TJSONValue;
-    /// <summary>Creates the error with a machine code and a human message.</summary>
-    /// <param name="ACode">The stable error code.</param>
-    /// <param name="AMsg">The human-readable message.</param>
-    constructor CreateCode( const ACode, AMsg: string );
-    /// <summary>Creates the error with a machine code, a human message, and an owned <c>error.data</c> payload.</summary>
-    /// <param name="ACode">The stable error code.</param>
-    /// <param name="AMsg">The human-readable message.</param>
-    /// <param name="AData">The payload; ownership passes to the exception (freed with it).</param>
-    constructor CreateCodeData( const ACode, AMsg: string; AData: TJSONValue );
-    /// <summary>Frees the owned <c>Data</c> payload.</summary>
-    destructor Destroy; override;
-  end;
 
 constructor EAutoError.CreateCode( const ACode, AMsg: string );
 begin
@@ -915,8 +988,12 @@ begin
   if not ( oComp is TControl ) then
     raise EAutoError.CreateCode( 'BadRequest', Format( '%s is a %s, not a control', [ oComp.Name, oComp.ClassName ] ) );
 
-  var iMax := TREE_TEXT_DEFAULT_MAX_ROWS;
-  AReq.TryGetValue<Integer>( 'max', iMax );
+  //  FORK: TryGetValue alone is wrong here. It sets its out parameter to Default( T ) when the key
+  //  is MISSING, so a request without "max" used to read ONE row (0, clamped up to 1) rather than
+  //  the default. The MCP tool always sends "max", which is why it went unnoticed.
+  var iMax: Integer;
+  if not AReq.TryGetValue<Integer>( 'max', iMax ) then
+    iMax := TREE_TEXT_DEFAULT_MAX_ROWS;
 
   var rRead: TTreeTextResult;
   try
@@ -1941,6 +2018,7 @@ begin
 
   Result.AddPair( 'id', TJSONNumber.Create( iId ) );
 
+  var rRegistered: TRegisteredCommand;
   try
     if SameText( sCmd, 'ping' ) or SameText( sCmd, 'info' ) then
     begin
@@ -2036,6 +2114,14 @@ begin
       Result.AddPair( 'ok', TJSONBool.Create( True ) );
       Result.AddPair( 'result', oOut );
     end
+    else if FindRegisteredCommand( sCmd, rRegistered ) then
+    begin
+      //  FORK: a command added through TAutomationServer.RegisterCommand. HandleLine has already
+      //  put us on the thread it asked for.
+      var oOut := rRegistered.Handler( AReq );
+      Result.AddPair( 'ok', TJSONBool.Create( True ) );
+      Result.AddPair( 'result', oOut );
+    end
     else
     begin
       Result.AddPair( 'ok', TJSONBool.Create( False ) );
@@ -2104,9 +2190,47 @@ begin
 
 end;
 
+class procedure TAutomationServer.RegisterCommand( const AName: string; const AHandler: TAutomationCommand;
+  AThread: TAutomationCommandThread );
+begin
+
+  if Trim( AName ) = '' then
+    raise EArgumentException.Create( 'RegisterCommand needs a command name' );
+  if not Assigned( AHandler ) then
+    raise EArgumentException.CreateFmt( 'RegisterCommand( %s ) needs a handler', [ AName ] );
+
+  var rCommand: TRegisteredCommand;
+  rCommand.Handler := AHandler;
+  rCommand.Thread  := AThread;
+
+  System.TMonitor.Enter( GCommands );
+  try
+    GCommands.AddOrSetValue( LowerCase( Trim( AName ) ), rCommand );
+  finally
+    System.TMonitor.Exit( GCommands );
+  end;
+
+end;
+
+class procedure TAutomationServer.UnregisterCommand( const AName: string );
+begin
+
+  if GCommands = nil then Exit;
+
+  System.TMonitor.Enter( GCommands );
+  try
+    GCommands.Remove( LowerCase( Trim( AName ) ) );
+  finally
+    System.TMonitor.Exit( GCommands );
+  end;
+
+end;
+
 initialization
+  GCommands := TDictionary<string, TRegisteredCommand>.Create;
 
 finalization
   FreeAndNil( GImpl );
+  FreeAndNil( GCommands );
 
 end.

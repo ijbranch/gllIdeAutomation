@@ -11,8 +11,8 @@ Variables: none of that is visible to the compiler, and reading it off screensho
 error-prone. This makes the IDE inspectable instead.
 
 Delphi **10.3 Rio and later**, Win32 or Win64. MIT licensed.
-Current version: **1.1.0** — see [CHANGELOG.md](CHANGELOG.md). It carries wire protocol `0.8`; the
-last tagged release, 1.0.1, carried `0.7`. (1.0.0 was tagged earlier the same day as 1.0.1 and
+Current version: **1.1.0** — see [CHANGELOG.md](CHANGELOG.md). It carries wire protocol `0.9` (0.8 until
+the ToolsAPI commands were added on 2026-09-29); the last tagged release, 1.0.1, carried `0.7`. (1.0.0 was tagged earlier the same day as 1.0.1 and
 superseded within hours; never take 1.0.0.)
 
 Fair warning on that range: it is what the source targets — inline variables set the 10.3 floor,
@@ -25,7 +25,7 @@ On anything older than 13, open the `.dpk` rather than the `.dproj` — see [Ins
 
 | For | Read |
 |---|---|
-| The wire protocol — 14 commands, the argument vocabulary, 28 error codes, and failures by symptom | [Help.md](Help.md) |
+| The wire protocol — 14 built-in commands and 21 ToolsAPI ones, the argument vocabulary, 51 error codes, and failures by symptom | [Help.md](Help.md) |
 | Doing a job — start the gated IDE, connect, read a form, drive a control | [Users Guide.md](Users%20Guide.md) |
 | What changed and when | [CHANGELOG.md](CHANGELOG.md) |
 
@@ -51,7 +51,13 @@ is open at the time.
 
 Commands: `ping`/`info`, `tree`, `get`, `set`, `click`, `action`, `dialogs`, `screenshot`,
 `dataset`, `dataset_op`, `field_get`, `field_set`, `tree_text`. Forms are addressed by name, `"main"` or
-`"active"`; components by their owned name. Every request gets a reply — a malformed one comes back
+`"active"`; components by their owned name.
+
+Through the ToolsAPI it also closes the IDE without it stopping to ask (`ide_modified`, `ide_quit`),
+walks and clicks the main menu, including items no action sits behind (`ide_menu`, `ide_menu_click`),
+and drives the IDE's own debugger: attach, pause, run, step, run to a line, threads, call stack,
+registers, memory, the IDE's evaluator and source breakpoints (`debug_*`). See
+[Help.md](Help.md#toolsapi-commands). Every request gets a reply — a malformed one comes back
 as an error carrying your `id`, not as a closed connection.
 
 ## Installing
@@ -152,8 +158,8 @@ Cross-check with `--name`.
 Everything ships with Delphi — clone and build, nothing to acquire:
 
 `rtl`, `vcl`, `vclimg` (screenshots), `dbrtl` (the dataset commands), `IndySystem` + `IndyCore`
-(the listener). Notably **not** `designide`: nothing here touches the ToolsAPI, which is also why
-it is not tied to any particular IDE version's OTA.
+(the listener), and `designide` for the ToolsAPI commands in `gllIdeAutomation.IdeCommands` (added
+2026-09-29; before then nothing here touched the ToolsAPI). The server unit itself still does not.
 
 ## Why the discovery path says GITLAK
 

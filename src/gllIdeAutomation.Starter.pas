@@ -32,7 +32,7 @@ implementation
 
 uses
   System.SysUtils,
-  gllIdeAutomation.Server;
+  gllIdeAutomation.Server, gllIdeAutomation.IdeCommands;
 
 const
   ///<summary> Environment variable that must be '1' before the server is started. </summary>
@@ -55,7 +55,10 @@ initialization
   // discovery directory must cost the automation server, never the IDE.
   try
     if ( AutomationRequested ) then
+    begin
       TAutomationServer.Start( APP_NAME );
+      RegisterIdeCommands;
+    end;
   except
     // Intentionally silent - see above.
   end;
@@ -63,6 +66,7 @@ initialization
 finalization
   try
     TAutomationServer.Stop;
+    UnregisterIdeCommands;
   except
     // Likewise: a failure while the IDE is closing must not turn into a shutdown hang.
   end;

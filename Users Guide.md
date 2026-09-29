@@ -145,7 +145,7 @@ $r.ReadLine() | ConvertFrom-Json
 ```
 
 `ping` answers `{ app, pid, version, package, exe, mainForm, server }`, where `server` is the
-protocol version (`0.8`). The two version fields are **not** the same thing and the distinction is
+protocol version (`0.9` since the ToolsAPI commands; `0.8` before). The two version fields are **not** the same thing and the distinction is
 the point: `version` is the **host's** — inside the IDE that is `bds.exe`'s, something like
 `37.0.60952.8797` — while `package` is this package's own BPL version, which is how you tell which
 build of `gllIdeAutomation` the IDE has actually loaded. If that returns, everything from here is
@@ -479,7 +479,48 @@ the package can enforce.
 
 ---
 
-## 15. Where to go next
+## 15. Close the IDE, use its menus, drive its debugger
+
+These go through the ToolsAPI; [Help.md](Help.md#toolsapi-commands) has every field.
+
+**Closing without a prompt.** The IDE's "save changes?" box is a plain API message box, so a
+script that reaches it waits for a person. `ide_quit` looks first:
+
+```json
+{ "token":"…", "id":1, "cmd":"ide_modified" }
+{ "token":"…", "id":2, "cmd":"ide_quit", "mode":"discard" }
+```
+
+The default `refuse` fails with `Modified` and the list rather than closing. Use `discard` in
+scripts: the IDE changes files merely by opening them, so `save` writes churn. This matters before
+a Release package build, which fails with `F2039` while the IDE has the package loaded.
+
+**The menu.** `ide_menu` lists the menu bar, or a branch by path; `ide_menu_click` clicks:
+
+```json
+{ "token":"…", "id":3, "cmd":"ide_menu_click", "path":"Run|Run" }
+```
+
+The click happens after the answer, so check `dialogs` next if it opens one.
+
+**The debugger.** A typical session against the active project:
+
+```json
+{ "token":"…", "id":4, "cmd":"debug_breakpoint_set", "file":"StepTest.dpr", "line":17 }
+{ "token":"…", "id":5, "cmd":"ide_menu_click", "path":"Run|Run" }
+{ "token":"…", "id":6, "cmd":"debug_state" }
+{ "token":"…", "id":7, "cmd":"debug_step", "mode":"into" }
+{ "token":"…", "id":8, "cmd":"debug_eval", "expr":"AValue" }
+{ "token":"…", "id":9, "cmd":"debug_run_to", "file":"StepTest.dpr", "line":20 }
+{ "token":"…", "id":10, "cmd":"debug_terminate" }
+```
+
+Poll `debug_state` until `current.location` appears after starting the program. `debug_step`,
+`debug_run_to` and `debug_run` with a `wait` answer once the process has stopped again, and say where.
+
+---
+
+## 16. Where to go next
 
 | You want | Read |
 |---|---|

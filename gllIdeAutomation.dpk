@@ -23,11 +23,13 @@ requires
   vclimg,
   dbrtl,
   IndySystem,
-  IndyCore;
+  IndyCore,
+  designide;
 
 contains
   gllIdeAutomation.Server in 'src\gllIdeAutomation.Server.pas',
   gllIdeAutomation.Starter in 'src\gllIdeAutomation.Starter.pas',
-  gllIdeAutomation.TreeText in 'src\gllIdeAutomation.TreeText.pas';
+  gllIdeAutomation.TreeText in 'src\gllIdeAutomation.TreeText.pas',
+  gllIdeAutomation.IdeCommands in 'src\gllIdeAutomation.IdeCommands.pas';
 
 end.

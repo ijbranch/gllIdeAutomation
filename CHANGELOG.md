@@ -6,6 +6,38 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Added
 
+- **ToolsAPI commands: close the IDE without a prompt, walk and click its main menu, and drive its
+  own debugger** (2026-09-29) — `src\gllIdeAutomation.IdeCommands.pas` (new),
+  `src\gllIdeAutomation.Server.pas`, `src\gllIdeAutomation.Starter.pas`, `gllIdeAutomation.dpk`,
+  `gllIdeAutomation.dproj`, `Help.md`, `README.md`, `Users Guide.md`. 21 commands:
+  `ide_modified`, `ide_quit` (`refuse`/`save`/`discard`/`ask`), `ide_menu`, `ide_menu_click`, and
+  `debug_state`, `debug_attach`, `debug_detach`, `debug_pause`, `debug_run`, `debug_step`,
+  `debug_run_to`, `debug_terminate`, `debug_threads`, `debug_set_thread`, `debug_stack`,
+  `debug_registers`, `debug_memory`, `debug_eval`, `debug_breakpoints`, `debug_breakpoint_set`,
+  `debug_breakpoint_delete`. **Why:** the package could only reach what the VCL shows. Closing the IDE
+  from a script could stall on the "save changes?" API message box, which blocks every Release package
+  build that needs the IDE closed. Menu items with no action behind them were out of reach, and the
+  IDE's own debugger (its evaluator, its view of the stack) could only be read off the panes.
+  Chosen after reading GxInspect's README (Thomas Mueller, GExperts), whose measured findings are cited
+  at each command. The code was written here against `ToolsAPI.pas`, not taken from GxInspect, which is MPL.
+  `debug_run`/`debug_step`/`debug_run_to` run on the worker thread and wait for a debugger notifier
+  to count the next stop, because the IDE processes debug events on the main thread.
+  **Built in four modes with zero hints. Verified live in the 64-bit IDE against a scratch Win64
+  program:**
+  - Stepping: over 17→18→19, into `Inner` (line 10), out back to 19, each answered in about 110 ms
+    with the new location.
+  - `debug_eval`: `AValue` = 1, `iTotal` = 12 after `run_to` line 20, and an unknown identifier
+    returned as `EvalError` with the evaluator's text.
+  - `debug_stack` matched the Call Stack pane frame for frame. `debug_registers` gave RIP and RSP, and
+    `debug_memory` read 16 bytes at RSP.
+  - `debug_run` with `wait` stopped at a new breakpoint. `debug_attach` with `pause` stopped an
+    externally started process, and `debug_detach` left it running.
+  - `ide_menu` reported an ambiguous path with its four candidates. File, New grew from 4 to 21 items
+    once filled.
+  - `ide_quit`: `refuse` and `save` refused, correctly, with an unsaved new unit open. `discard` closed
+    the IDE with no prompt and left the project's `.dpr` byte-identical; `refuse` closed a clean IDE.
+  - `save` and `ask` were not exercised against a real save.
+
 - **`tree_text` reads the debugger panes: Local Variables, Watch and Call Stack** (2026-09-25) —
   `src\gllIdeAutomation.TreeText.pas`, `src\gllIdeAutomation.Server.pas`, `gllIdeAutomation.dpk`,
   `gllIdeAutomation.dproj`, `Help.md`, `README.md`, `Users Guide.md`. `get` could never reach them:
@@ -78,6 +110,16 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   only one loaded package — and nothing keeps the two copies in step.
 
 ### Fixed
+
+- **`tree_text` without `max` read ONE row, not 2,000** (2026-09-29) — `src\gllIdeAutomation.Server.pas`.
+  `TJSONValue.TryGetValue<T>` sets its out parameter to `Default( T )` when the key is MISSING
+  (`System.JSON.pas`: `if not Result then AValue := Default(T)`). So the pattern "assign the
+  default, then TryGetValue" silently replaced it with 0, and the reader clamped that to 1. The MCP
+  tool always sends `max`, which is why nobody saw it. Found while building the ToolsAPI commands,
+  where the same pattern made every new breakpoint come out disabled. They read optional arguments
+  through `OptString`/`OptInteger`/`OptBoolean`, which keep the default and reject a wrongly typed
+  value. GITLAKLib's `gllAutomationServer` was checked the same day and has no `TryGetValue` call, so
+  the defect was fork-only.
 
 - **The vendored body was 283 lines and one wire version behind GITLAKLib, with two live bugs;
   re-synced from `gllAutomationServer` 0.8** (2026-09-21) — `src\gllIdeAutomation.Server.pas`.
@@ -217,6 +259,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   stale one puts dead platforms back in front of the reader.
 
 ### Changed
+
+- **Wire protocol 0.9: commands can be registered from outside the server; the package now requires
+  `designide`** (2026-09-29) — `src\gllIdeAutomation.Server.pas`, `gllIdeAutomation.dpk`,
+  `gllIdeAutomation.dproj`. `TAutomationServer.RegisterCommand`/`UnregisterCommand` add a command
+  on the main or the worker thread, and `EAutoError` moved to the interface so such a command fails
+  with a code of its own. Both are marked `FORK` and are generic, so both belong upstream in
+  GITLAKLib. `designide` reverses the earlier "deliberately not" choice, which was made while
+  nothing needed the ToolsAPI.
 
 - **The `tree_text` `WideString` finding is IDE-wide, not 64-bit-only — confirmed upstream** (2026-09-27)
   — `CHANGELOG.md`, `Help.md`, `src\gllIdeAutomation.TreeText.pas` (a doc comment only). No code change. Thomas Mueller closed our GExperts

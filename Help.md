@@ -22,9 +22,9 @@ rationale and the tooling are in [README.md](README.md).
 
 ## 1. The Pascal surface
 
-Two units, both in `src\`, both listed in the `.dpk` `contains` clause. There is no component to
-drop on a form and nothing to register — the package's whole public surface is one static class
-plus an `initialization` section.
+The units are in `src\`, all listed in the `.dpk` `contains` clause. There is no component to drop
+on a form. The public surface is one static class, `TAutomationServer`, and `EAutoError`, the
+exception a registered command raises to fail with a code of its own.
 
 ### `gllIdeAutomation.Server`
 
@@ -34,6 +34,8 @@ plus an `initialization` section.
 | `TAutomationServer.Stop` | `class procedure Stop` | Stops and frees the server, removing the discovery file. Idempotent. |
 | `TAutomationServer.IsRunning` | `class function IsRunning: Boolean` | True while the server is running. |
 | `TAutomationServer.Port` | `class function Port: Word` | The bound loopback port; `0` when not running. |
+| `TAutomationServer.RegisterCommand` | `class procedure RegisterCommand( const AName: string; const AHandler: TAutomationCommand; AThread: TAutomationCommandThread = actMainThread )` | Adds a command. Built-in commands are matched first, so a registered name can never shadow one. `actWorkerThread` is for a handler that must WAIT on the main thread, and synchronises each step itself. |
+| `TAutomationServer.UnregisterCommand` | `class procedure UnregisterCommand( const AName: string )` | Removes one; unknown names are ignored. |
 
 Implementation-only constants worth knowing, because they define observable behaviour:
 
@@ -41,7 +43,7 @@ Implementation-only constants worth knowing, because they define observable beha
 |---|---|---|
 | `AUTOMATION_PORT_BASE` | `8730` | First loopback port tried. |
 | `AUTOMATION_PORT_SPAN` | `200` | Consecutive ports probed before the bind is abandoned. |
-| `SERVER_VERSION` | `'0.8'` | Reported as `server` by `ping`/`info`. |
+| `SERVER_VERSION` | `'0.9'` | Reported as `server` by `ping`/`info`. |
 | `MAX_REQUEST_BYTES` | `1048576` | Longest request line accepted; longer is `RequestTooLong`. |
 | `CLICK_COUNT_MAX` | `1000` | Upper bound on `click`'s `count`. |
 | `PROPLIST_MAX` | `100` | Cap on the property list returned with a `NoProp` failure. |
@@ -57,6 +59,9 @@ entire job is the gate:
 |---|---|---|
 | `ENV_GATE` | `GITLAK_IDE_AUTOMATION` | Must be `1` (after `Trim`) or nothing starts. |
 | `APP_NAME` | `DelphiIDE` | The name the IDE is advertised under — this is what `app_list` shows. |
+
+Once the server has started it calls `RegisterIdeCommands` from `gllIdeAutomation.IdeCommands`,
+and on the way out `UnregisterIdeCommands`. See [ToolsAPI commands](#toolsapi-commands).
 
 Both `initialization` and `finalization` are wrapped in a bare `try..except` that swallows
 everything **deliberately**: an exception escaping a design-time package's initialisation is
@@ -114,8 +119,62 @@ Read out of `TServerImpl.ExecuteCommand` and the `AutoCmd*` functions.
 | `field_set` | `form?`, `name`, `field`, `value` | `{ dataset, field, state, isNull, value }` |
 | `tree_text` | `form?`, `name`, `max?` | `{ name, class, columns, rows:[ { level, cells } … ], rowsRead, rootCount, complete, notes }` — every **displayed** row of a virtual tree, in display order. `columns` are the header captions by column index; `cells` are indexed the same way, trailing empty cells dropped; `level` is the nesting depth, `-1` if unreadable. `complete:false` always comes with a note saying why. **Fork-only** — see [§4](#4-scope-of-this-fork) |
 
-There is no `wait` command. Polling is a client concern; a blocking wait would hold the
-connection and the VCL thread it marshals onto.
+There is no general `wait` command. Polling is a client concern; a blocking wait would hold the
+connection and the VCL thread it marshals onto. The one exception is the debugger commands that set
+a process running, which take a `wait` of their own: only the debugger can say when a process has
+stopped, and they wait on the worker thread, not the VCL thread.
+
+### ToolsAPI commands
+
+Registered by `src\gllIdeAutomation.IdeCommands.pas` through `TAutomationServer.RegisterCommand`,
+so the vendored server body stays free of the ToolsAPI. Chosen after reading GxInspect's
+README, whose measured findings shaped several of them; each is cited in the unit. The code is
+written here against `ToolsAPI.pas`, not taken from GxInspect (MPL).
+
+| `cmd` | Request fields | Result |
+|---|---|---|
+| `ide_modified` | - | `{ count, modified:[ { file, kind, untitled } ] }` - everything that would make closing stop and ask. `kind` is `buffer` (an edited file) or `options` (changed project options); `untitled` means it has never been saved. An unsaved project group the IDE invented is left out: it never asks about one |
+| `ide_quit` | `mode?` | `{ mode, closing:true, saved? \| discarded? }`; the IDE closes about 150 ms after the answer. `mode` is `refuse` (default: fail with `Modified` if anything is unsaved), `save`, `discard` or `ask`. **Script with `discard`**, not `save`: the IDE dirties files merely by opening them |
+| `ide_menu` | `path?`, `depth?` | No `path`: `{ items:[ … ] }` for the menu bar. With one: that item, and its branch `depth` levels deep (default 1, at most 6). Each item: `{ name, caption, action?, enabled, visible, checked, separator, count, items? }` |
+| `ide_menu_click` | `path` | `{ clickScheduled:true, item }`. The click happens after the answer, so a command that opens a dialog does not hold it up; ask `dialogs` next |
+| `debug_state` | - | `{ activeProject, processes:[ { pid, exe, state, current } ], current:{ state, pid, exe, location? } }` |
+| `debug_attach` | `pid`, `pause?` | `{ requested:true, pid, pause }` - answered **before** the attach happens; `debug_state` confirms it. Reset in the IDE then detaches rather than kills |
+| `debug_detach` | - | `{ detached:true, pid }` - the process keeps running |
+| `debug_pause` | - | `{ requested:true, pid }` - answered before it has stopped |
+| `debug_run` | `wait?` | As `debug_step`. `wait` defaults to 0: answer at once |
+| `debug_step` | `mode?`, `wait?` | `{ stopped, waitedMs, state, pid, exe, location:{ thread, file, line, … } }` - answered **once the process has stopped again**, saying where. `stopped:false` means `wait` (default 10000 ms) ran out first |
+| `debug_run_to` | `file`, `line`, `wait?` | As `debug_step`. `file` is a path, or a file name open in the IDE |
+| `debug_terminate` | - | `{ terminated:true, pid }` - the one command that ends the process |
+| `debug_threads` | - | `{ pid, threads:[ { thread, name, state, current, file?, line? } ] }` |
+| `debug_set_thread` | `thread` | The thread, as in `debug_threads` |
+| `debug_stack` | `thread?`, `max?` | `{ thread, count, frames:[ { index, header, file, line } ] }` - what the Call Stack pane shows. `max` defaults to 100 |
+| `debug_registers` | `thread?` | `{ thread, bits, registers:{ rax … r15, rip, eflags } }` (or the 32-bit set in the 32-bit IDE), as hex |
+| `debug_memory` | `address`, `count?` | `{ address, requested, read, hex, stoppedAt?, reason? }`. `address` is a number, `$hex` or `0xhex`; `count` defaults to 64, at most 4096. Read a page at a time, so a range running into unreadable memory returns what it could |
+| `debug_eval` | `expr`, `thread?`, `sideEffects?` | `{ expr, result, canModify, address, size }` - the IDE's own evaluator, so the text is what the IDE shows |
+| `debug_breakpoints` | - | `{ breakpoints:[ { file, line, enabled, condition, passCount } ] }` - source breakpoints |
+| `debug_breakpoint_set` | `file`, `line`, `condition?`, `passCount?`, `enabled?` | The breakpoint. Updates the one already on that line rather than adding a second. `enabled` defaults to true |
+| `debug_breakpoint_delete` | `file`, `line` | `{ deleted:true, file, line }` |
+
+**The debugger commands act on the debugger's CURRENT process, and that follows the ACTIVE
+PROJECT.** Make another project active while a process is stopped and the process is still there
+but no longer current, and every command here answers `NoProcess`, saying why (GxInspect,
+measured). Make the project that was run active again and everything comes back.
+
+**A paused process cannot answer its own automation server.** Talk to the IDE instead.
+
+**Measured while building these, and worth knowing before you script against them:**
+
+- `IOTAProcess.GetProcessType` answers `optOSX64` for a Win64 program in the 64-bit IDE, so the
+  bitness is asked of Windows (`IsWow64Process`).
+- `IOTAProcess.Run( ormRunToCursor )` runs straight past the line under the cursor. `debug_run_to`
+  uses the editor view's `IOTAEditActions.RunToCursor`, which stops there.
+- Reading an unmapped address raises `EDbkError: Debugger Kernel BORDBK370.DLL or BORDBK370N.DLL is
+  missing or could not be loaded`. Nothing is missing; that is how the 64-bit IDE says the address is
+  unreadable. `debug_memory` reports it as `Unreadable` with that explanation.
+- The 64-bit IDE sees only the WOW64 layer of a 32-bit process, so `debug_registers` and
+  `debug_memory` refuse there with `Unsupported`; the 32-bit IDE handles both.
+- `ide_quit` with `discard` closed a project and an unsaved new unit without a prompt, and the
+  project's `.dpr` on disk was byte-identical afterwards. The IDE then took over 8 s to exit.
 
 ### Command arguments with a fixed vocabulary
 
@@ -124,6 +183,10 @@ connection and the VCL thread it marshals onto.
 | `mode` | `click` | `direct` (default — calls `OnClick`) or `message` (posts `BM_CLICK` and replies at once). Anything else → `BadMode`. |
 | `count` | `click` | `1` (default) to `CLICK_COUNT_MAX` (1000). Outside that range → `BadCount`. The reply's `clicksDispatched` says how many actually went out, which is fewer than `count` when a handler raised. |
 | `max` | `tree_text` | Row limit, default `2000`; clamped to `1`..`100000`. Reaching it ends the read with `complete:false` and a note. |
+| `mode` | `ide_quit` | `refuse` (default), `save`, `discard`, `ask`. Anything else → `BadRequest`. |
+| `mode` | `debug_step` | `over` (default), `into`, `out` (run until the function returns), `toSource`, `instInto`, `instOver`. Anything else → `BadRequest`. |
+| `path` | `ide_menu`, `ide_menu_click` | Steps separated by `\|`, from the menu bar down. Each step is a component name or a caption; a caption is compared without its `&` and without case, and matches by its beginning when nothing matches it whole. A beginning that matches several items → `AmbiguousMenuItem`. Names are the dependable choice in a localised IDE; what the IDE generates (Reopen, Desktops, the user's tools) has no name and can only be named by caption. |
+| `wait` | `debug_run`, `debug_step`, `debug_run_to` | Milliseconds, clamped to `0`..`120000`. |
 | `op` | `dataset_op` | `insert`, `append`, `edit`, `post`, `cancel`, `refresh`, `first`, `last`, `next`, `prior`. Lower-cased and trimmed first; anything else → `BadOp`. |
 | `area` | `screenshot` | `virtual` (the whole virtual screen), `window` (the app's active window rect), anything else → the monitor the active window is on. The result's `area` field reports which of `virtual` / `window` / `monitor` was used. |
 
@@ -134,7 +197,7 @@ do not.
 
 | Runs on the worker thread | Runs marshalled to the main VCL thread |
 |---|---|
-| `dialogs`, `screenshot` | everything else |
+| `dialogs`, `screenshot`, `debug_run`, `debug_step`, `debug_run_to` | everything else |
 
 `dialogs` enumerates top-level windows with the Win32 API and clicks with
 `SendMessageTimeout( …, BM_CLICK, …, SMTO_ABORTIFHUNG, 5000, … )`, so it still answers a dialog
@@ -177,8 +240,8 @@ towards keeping a stale file rather than deleting a live one.
 ## 3. Error codes
 
 Every failure returns `{ id, ok:false, error:{ code, message } }` with a stable `code`. The full
-set — eighteen from the `EAutoError.CreateCode` / `CreateCodeData` sites, and five the pre-dispatch
-path and the dispatcher emit directly:
+set, from the `EAutoError.CreateCode` / `CreateCodeData` sites and from the pre-dispatch path and
+the dispatcher:
 
 | Code | Raised when |
 |---|---|
@@ -208,6 +271,25 @@ path and the dispatcher emit directly:
 | `NotOnScreen` | `tree_text` on a tree whose window is not visible — a hidden pane, or a visible tree inside a hidden parent. Its text only exists while it paints, so show the window first |
 | `NoGetText` | `tree_text` on a tree with no `OnGetText` event, or none assigned — nothing supplies its text |
 | `SignatureMismatch` | `tree_text` on a tree whose `OnGetText` type, read from RTTI, is not the shape the reader stands in for. The message quotes the actual declaration. Nothing was hooked |
+| `NoService` | the IDE does not offer the ToolsAPI service a command needs (module, debugger, main menu) |
+| `Modified` | `ide_quit` in `refuse` mode with something unsaved; `error.data` lists it as `ide_modified` does |
+| `Untitled` | `ide_quit` in `save` mode with a file that has never been saved - saving it would open Save As; `error.data` lists them |
+| `SaveFailed` / `CloseFailed` | `ide_quit` - the IDE declined to save or close a module |
+| `NoMenuItem` | a menu path step matches nothing; `error.data` lists what is there |
+| `AmbiguousMenuItem` | a caption beginning matches several items; `error.data` lists them |
+| `NotClickable` | also `ide_menu_click` on a separator, a submenu, or an item that is disabled or hidden or sits in one that is |
+| `NoProcess` | a debugger command with nothing being debugged, or with no CURRENT process because another project is active |
+| `NotStopped` | a debugger command that needs the process (or thread) stopped |
+| `NoThread` | no such thread in the current process |
+| `NoProject` | `debug_attach` with no project open - the debugger takes the platform from it, and without one the attach silently does nothing |
+| `NoFile` / `NoEditor` | `debug_run_to` - the file could not be opened, or has no editor view offering Run to Cursor |
+| `StackBusy` | `debug_stack` - the stack is temporarily unavailable; ask again shortly |
+| `StackInaccessible` | `debug_stack` - the debugger cannot read this thread's stack |
+| `Unsupported` | `debug_registers` / `debug_memory` on a 32-bit process in the 64-bit IDE |
+| `NoAccess` | Windows would not say whether the debugged process is 64-bit |
+| `Unreadable` | `debug_memory` could not read even the first byte |
+| `EvalError` / `EvalDeferred` / `EvalBusy` | `debug_eval` - the evaluator's error text; it had to call into the process and has no result yet; it is busy |
+| `BreakpointFailed` / `NoBreakpoint` | the debugger set no breakpoint; there is none on that line to delete |
 | `RequestTooLong` | the request line exceeded `MAX_REQUEST_BYTES` (1 MB); the connection is closed after the reply |
 | `Internal` | any other exception escaping the command — the message is prefixed with the exception class |
 
@@ -257,8 +339,13 @@ What it **is** is a **vendored copy**, and that is the divergence that matters:
   It is the stated exception above: nothing goes back to GITLAKLib, because no application we ship
   carries a virtual tree. The technique is Thomas Mueller's, from `TREETEXT` in GxInspect, the
   GExperts inspection server — re-implemented here, not copied; the unit header says so.
-- The package deliberately does **not** require `designide`. Nothing here touches the ToolsAPI,
-  which is why it is not tied to any particular IDE version's OTA.
+- **The ToolsAPI commands exist only here** (2026-09-29), in `src\gllIdeAutomation.IdeCommands.pas`,
+  and reach the server only through `TAutomationServer.RegisterCommand`. That registry and making
+  `EAutoError` public are the only changes to the vendored body, both marked `FORK`, and both belong
+  upstream: they are generic.
+- **The package now requires `designide`** (2026-09-29), for `ToolsAPI`. That reverses an earlier
+  deliberate choice, made while nothing here needed the ToolsAPI; a design-only package running in
+  the IDE loses nothing by it. `gllIdeAutomation.Server` itself still does not use the ToolsAPI.
 
 The version is defined in exactly one place, `gllIdeAutomationVersion.rc`, and the `.dproj` sets
 `VerInfo_IncludeVerInfo=false` so the IDE's own per-configuration version fields cannot compete
@@ -483,8 +570,7 @@ Everything ships with Delphi. Clone and build; there is nothing to acquire.
 | `vclimg` | `Vcl.Imaging.pngimage` — the `screenshot` command |
 | `dbrtl` | `Data.DB` — the `dataset` / `dataset_op` / `field_*` commands |
 | `IndySystem`, `IndyCore` | `TIdTCPServer` — the loopback listener |
-
-Notably **not** `designide`. Nothing here touches the ToolsAPI.
+| `designide` | `ToolsAPI` — the `ide_*` and `debug_*` commands in `gllIdeAutomation.IdeCommands` |
 
 The dataset commands are inherited from the server's origin driving database applications. They
 are of little practical use against the IDE itself, but they cost nothing and they are why
