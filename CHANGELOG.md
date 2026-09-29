@@ -4,6 +4,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### Changed
+
+- **Every `FORK` fix is now in GITLAKLib too** (2026-09-29) - `src\gllIdeAutomation.Server.pas` (header only), `Help.md`. GITLAKLib's `gllAutomationServer` was rebuilt from this body the same day. The two now differ only by a list at the top of GITLAKLib's unit, which a comment-stripped diff confirms is complete. The header here no longer says the other fixes are still to go back. No code change here.
+
 ## [1.2.0] - 2026-09-29
 
 > Wire protocol `0.9`, tagged `v1.2.0`. It contains everything since 1.0.1: the entries in this section and the
