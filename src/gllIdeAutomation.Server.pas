@@ -14,7 +14,9 @@
   - it runs inside bds.exe, not inside an application we ship - and those divergences are the
   header, the unit name, two message literals, the compiler guard, the wording of two comments,
   and the items marked FORK below. Everything marked FORK is a fix that belongs upstream too;
-  carry it back to GITLAKLib rather than letting the copies drift again.
+  carry it back to GITLAKLib rather than letting the copies drift again. The command registry
+  (RegisterCommand, a public EAutoError) was carried back on 2026-09-29, as GITLAKLib 0.9; the
+  other FORK fixes have not been yet.
 
   The unit is renamed deliberately. A Delphi unit may exist in only one loaded package, so a
   copy still called gllAutomationServer could not be loaded into an IDE that already has

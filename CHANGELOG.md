@@ -4,8 +4,17 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [1.2.0] - 2026-09-29
+
+> Wire protocol `0.9`, tagged `v1.2.0`. It contains everything since 1.0.1: the entries in this section and the
+> `[In-Service]` record below, which covers the continuously deployed builds in between.
+> **There is no 1.1.0 release.** The version resource read 1.1.0 from `fc8da69` (2026-09-21) while this work
+> was in progress, and was never tagged; tagging it now would give that number to a build no 1.1.0 binary
+> ever was. A BPL reporting 1.1.0.x is an untagged in-progress build.
+
 ### Added
 
+- **Release 1.2.0** (2026-09-29) - `gllIdeAutomationVersion.rc`, `README.md`, `CHANGELOG.md`. The version resource moves to 1.2.0.0 and the commit is tagged `v1.2.0`.
 - **ToolsAPI commands: close the IDE without a prompt, walk and click its main menu, and drive its
   own debugger** (2026-09-29) — `src\gllIdeAutomation.IdeCommands.pas` (new),
   `src\gllIdeAutomation.Server.pas`, `src\gllIdeAutomation.Starter.pas`, `gllIdeAutomation.dpk`,

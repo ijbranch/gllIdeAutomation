@@ -341,8 +341,9 @@ What it **is** is a **vendored copy**, and that is the divergence that matters:
   GExperts inspection server — re-implemented here, not copied; the unit header says so.
 - **The ToolsAPI commands exist only here** (2026-09-29), in `src\gllIdeAutomation.IdeCommands.pas`,
   and reach the server only through `TAutomationServer.RegisterCommand`. That registry and making
-  `EAutoError` public are the only changes to the vendored body, both marked `FORK`, and both belong
-  upstream: they are generic.
+  `EAutoError` public were **carried back to GITLAKLib the same day** (`gllAutomationServer` 0.9), so
+  the two copies agree on the extension point and on the protocol version. They are still marked
+  `FORK` here, because the rest of the fork's `FORK` fixes have NOT gone back yet.
 - **The package now requires `designide`** (2026-09-29), for `ToolsAPI`. That reverses an earlier
   deliberate choice, made while nothing here needed the ToolsAPI; a design-only package running in
   the IDE loses nothing by it. `gllIdeAutomation.Server` itself still does not use the ToolsAPI.

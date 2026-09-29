@@ -11,8 +11,9 @@ Variables: none of that is visible to the compiler, and reading it off screensho
 error-prone. This makes the IDE inspectable instead.
 
 Delphi **10.3 Rio and later**, Win32 or Win64. MIT licensed.
-Current version: **1.1.0** — see [CHANGELOG.md](CHANGELOG.md). It carries wire protocol `0.9` (0.8 until
-the ToolsAPI commands were added on 2026-09-29); the last tagged release, 1.0.1, carried `0.7`. (1.0.0 was tagged earlier the same day as 1.0.1 and
+Current version: **1.2.0** (tagged `v1.2.0`, 2026-09-29) — see [CHANGELOG.md](CHANGELOG.md). It carries
+wire protocol `0.9`; the previous release, 1.0.1, carried `0.7`. There is no 1.1.0 release: that number was
+only ever an untagged working version. (1.0.0 was tagged earlier the same day as 1.0.1 and
 superseded within hours; never take 1.0.0.)
 
 Fair warning on that range: it is what the source targets — inline variables set the 10.3 floor,
