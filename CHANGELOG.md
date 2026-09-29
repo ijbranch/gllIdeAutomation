@@ -36,7 +36,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
     once filled.
   - `ide_quit`: `refuse` and `save` refused, correctly, with an unsaved new unit open. `discard` closed
     the IDE with no prompt and left the project's `.dpr` byte-identical; `refuse` closed a clean IDE.
-  - `save` and `ask` were not exercised against a real save.
+  - `save`: with the `.dpr` edited in the IDE's buffer, the edit reached the disk and the IDE closed with
+    no prompt. `ask`: the IDE showed its own "Confirm" prompt, a VCL `TMessageForm` in Delphi 13, not the
+    plain API box GxInspect saw in older IDEs. `dialogs` answered it "No", the IDE exited, and the edit was
+    not saved.
 
 - **`tree_text` reads the debugger panes: Local Variables, Watch and Call Stack** (2026-09-25) —
   `src\gllIdeAutomation.TreeText.pas`, `src\gllIdeAutomation.Server.pas`, `gllIdeAutomation.dpk`,

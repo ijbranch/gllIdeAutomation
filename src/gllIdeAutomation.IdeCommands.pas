@@ -446,8 +446,9 @@ end;
 
 /// <summary>
 ///   <c>ide_quit</c>: closes the IDE without leaving it waiting on a question nobody can answer.
-///   The IDE's "save changes?" prompt is a plain API message box, so a script that reaches it waits
-///   for a human (GxInspect). So the default looks first and refuses instead.
+///   The IDE's "save changes?" prompt is modal - in Delphi 13 a VCL <c>TMessageForm</c> captioned
+///   "Confirm" (measured; GxInspect saw a plain API message box in older IDEs) - so a script that
+///   reaches it waits for a human. So the default looks first and refuses instead.
 /// </summary>
 /// <param name="AReq">
 ///   The request: <c>mode</c> = <c>refuse</c> (default: close only when nothing is unsaved),

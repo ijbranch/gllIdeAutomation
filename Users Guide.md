@@ -483,8 +483,8 @@ the package can enforce.
 
 These go through the ToolsAPI; [Help.md](Help.md#toolsapi-commands) has every field.
 
-**Closing without a prompt.** The IDE's "save changes?" box is a plain API message box, so a
-script that reaches it waits for a person. `ide_quit` looks first:
+**Closing without a prompt.** The IDE's "save changes?" box is modal (in Delphi 13 a VCL form
+captioned "Confirm"), so a script that reaches it waits for a person. `ide_quit` looks first:
 
 ```json
 { "token":"…", "id":1, "cmd":"ide_modified" }
