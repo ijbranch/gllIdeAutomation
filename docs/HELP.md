@@ -32,10 +32,8 @@ Almost always one of:
   (Get-Item "$env:PUBLIC\Documents\Embarcadero\Studio\37.0\Bpl\Win64\gllIdeAutomation370.bpl").VersionInfo.FileVersion
   ```
 
-  If that number has not moved since your last change, the build did not reach the BPL the IDE
-  loads. Nothing advances that number on its own — it lives in `gllIdeAutomationVersion.rc` and
-  changes only when you run `python tools/bump-build.py`. So two builds you did not bump between
-  will legitimately report the same version.
+  If that number has not moved since the last build of the same configuration, the build did not
+  reach the BPL the IDE loads: every build advances it ( Release and Debug count separately ).
 - **The IDE was launched from somewhere that does not carry the environment variable** — a
   shortcut, a file association, another tool launching it.
 - **A stale discovery file** from an IDE that died without cleaning up. The file names itself

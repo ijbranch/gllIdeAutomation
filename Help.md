@@ -350,9 +350,9 @@ What it **is** is a **vendored copy**, and that is the divergence that matters:
   deliberate choice, made while nothing here needed the ToolsAPI; a design-only package running in
   the IDE loses nothing by it. `gllIdeAutomation.Server` itself still does not use the ToolsAPI.
 
-The version is defined in exactly one place, `gllIdeAutomationVersion.rc`, and the `.dproj` sets
-`VerInfo_IncludeVerInfo=false` so the IDE's own per-configuration version fields cannot compete
-with it. Nothing advances the number automatically; `tools/bump-build.py` does.
+The version comes from the `.dproj`'s `VerInfo_*` (since 2026-10-06; it was a hand-maintained
+`gllIdeAutomationVersion.rc` before). The build number auto-increments on every build, separately
+for Win64 Release and Win64 Debug, and the BPL reports the number from before that build's bump.
 
 ---
 
@@ -442,9 +442,9 @@ from the form, and saving writes the loss into the `.dfm`.
   (Get-Item "$env:PUBLIC\Documents\Embarcadero\Studio\37.0\Bpl\Win64\gllIdeAutomation370.bpl").VersionInfo.FileVersion
   ```
 
-  If that number has not moved, the build did not reach the BPL the IDE loads. Nothing advances
-  it on its own, so two builds with no `bump-build.py` between them legitimately report the same
-  version — a matching number is not by itself proof of a stale build.
+  If that number has not moved since the last build of the same configuration, the build did not
+  reach the BPL the IDE loads: every build advances it. Compare like with like - Release and Debug
+  count separately.
 - **The IDE was launched from somewhere that does not carry the variable** — a shortcut, a file
   association, another tool.
 

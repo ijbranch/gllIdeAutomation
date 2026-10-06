@@ -38,9 +38,9 @@ let your IDE generate its own `.dproj` — the `.dpk` is the real project and is
 while a `.dproj` belongs to the IDE version that wrote it.
 
 The BPL carries version information, which is how you tell later which build an IDE has loaded.
-It comes from `gllIdeAutomationVersion.rc` — the one place the version is defined — and nothing
-advances it automatically, in the IDE or out of it. Run `python tools/bump-build.py` first if you
-want two builds to be distinguishable.
+It comes from the `.dproj`'s version info, and every build advances the build number
+automatically ( Win64 Release and Debug count separately ), so two builds are always
+distinguishable.
 
 **2. Install** — Component > Install Packages > Add, and choose the BPL.
 

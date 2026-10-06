@@ -327,9 +327,9 @@ end;
 /// <returns><c>major.minor.release.build</c> of the loaded BPL, or '' when it carries no version resource.</returns>
 /// <remarks>
 ///   FORK: <c>ping</c> used to report only <c>ParamStr( 0 )</c>'s version, which inside the IDE
-///   is <c>bds.exe</c>'s. The whole point of the single-source version in
-///   <c>gllIdeAutomationVersion.rc</c> is to know WHICH build of this package is loaded, and
-///   that was unreportable at run time. <c>HInstance</c> is the package's own module handle.
+///   is <c>bds.exe</c>'s. The point of the package's version resource ( the <c>.dproj</c>'s
+///   <c>VerInfo_*</c>, build auto-incremented ) is to know WHICH build of this package is loaded,
+///   and that was unreportable at run time. <c>HInstance</c> is the package's own module handle.
 /// </remarks>
 function GetPackageFileVersion: string;
 begin

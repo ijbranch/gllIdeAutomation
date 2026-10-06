@@ -35,15 +35,9 @@ The mode that matters for *installing* is the platform that matches the IDE:
 A design-time package must match the bitness of the IDE loading it, and the wrong one silently
 never loads.
 
-If you want two builds to be distinguishable afterwards, bump the version **before** building:
-
-```powershell
-python tools\bump-build.py
-```
-
-Nothing advances that number automatically — it is defined once, in
-`gllIdeAutomationVersion.rc`, and the `.dproj` sets `VerInfo_IncludeVerInfo=false` so the IDE's
-own per-configuration version fields cannot compete with it.
+Every build advances the build number automatically (the `.dproj`'s version info, Win64 Release
+and Debug counting separately), so two builds are always distinguishable afterwards. The BPL
+reports the number from before that build's bump.
 
 > If the build stops with **two** `F2039 Could not create output file` errors and no compilation
 > errors, an IDE has the package installed and is holding the `.bpl` and the `.dcp` open. See
