@@ -9,6 +9,19 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 - **Every `FORK` fix is now in GITLAKLib too** (2026-09-29) - `src\gllIdeAutomation.Server.pas` (header only), `Help.md`. GITLAKLib's `gllAutomationServer` was rebuilt from this body the same day. The two now differ only by a list at the top of GITLAKLib's unit, which a comment-stripped diff confirms is complete. The header here no longer says the other fixes are still to go back. No code change here.
 
+### Fixed
+
+- **An in-IDE build re-saved the package `.dproj` without its Release output paths** (2026-10-07) —
+  `gllIdeAutomation.dproj`. The output standard was two `Condition`-ed `DCC_BplOutput` / `DCC_DcpOutput` lines in the
+  Base group, and the IDE keeps one value per property per group when it re-saves the project on a build, so it wrote
+  back only the active config's: a committed re-save sent Release builds to the root `Bpl` / `Dcp` folders. Now one
+  plain value per group, the form the IDE writes itself: Base `$(BDSCOMMONDIR)\Bpl\$(Platform)\$(Config)` (and `Dcp`),
+  overridden in the Release config group by `$(BDSCOMMONDIR)\Bpl\$(Platform)`. Same output; built in all four modes
+  with the `dcc` `-LE`/`-LN` paths checked per mode. **Added `DllSuffix`** to `gllIdeAutomation.dproj`, matching the
+  `.dpk`'s `{$LIBSUFFIX}`: the IDE's reinstall after an in-IDE build of an installed package takes the file name from
+  `DllSuffix`, so without it the build ended in `[Fatal Error] Can't load package` (found in gllDelphiRefactoringLight
+  the same day).
+
 ## [1.2.0] - 2026-09-29
 
 > Wire protocol `0.9`, tagged `v1.2.0`. It contains everything since 1.0.1: the entries in this section and the
