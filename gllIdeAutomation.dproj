@@ -96,15 +96,15 @@
   </PropertyGroup>
   <PropertyGroup Condition="'$(Cfg_1_Win32)'!=''">
     <DCC_RemoteDebug>false</DCC_RemoteDebug>
-    <VerInfo_Build>3</VerInfo_Build>
-    <VerInfo_Keys>CompanyName=GITLAK Software;FileDescription=gllIdeAutomation;FileVersion=1.2.0.3;InternalName=gllIdeAutomation;LegalCopyright=Copyright (c) 2016-2026 Ian Branch (GITLAK Software) - MIT;LegalTrademarks=;OriginalFilename=;ProductName=gllIdeAutomation;ProductVersion=1.2.0.3;Comments=</VerInfo_Keys>
+    <VerInfo_Build>6</VerInfo_Build>
+    <VerInfo_Keys>CompanyName=GITLAK Software;FileDescription=gllIdeAutomation;FileVersion=1.2.0.6;InternalName=gllIdeAutomation;LegalCopyright=Copyright (c) 2016-2026 Ian Branch (GITLAK Software) - MIT;LegalTrademarks=;OriginalFilename=;ProductName=gllIdeAutomation;ProductVersion=1.2.0.6;Comments=</VerInfo_Keys>
   </PropertyGroup>
   <PropertyGroup Condition="'$(Cfg_1_Win64)'!=''">
     <DCC_RemoteDebug>false</DCC_RemoteDebug>
     <VerInfo_IncludeVerInfo>true</VerInfo_IncludeVerInfo>
     <VerInfo_AutoIncVersion>true</VerInfo_AutoIncVersion>
-    <VerInfo_Build>4</VerInfo_Build>
-    <VerInfo_Keys>CompanyName=GITLAK Software;FileDescription=gllIdeAutomation;FileVersion=1.2.0.4;InternalName=gllIdeAutomation;LegalCopyright=Copyright (c) 2016-2026 Ian Branch (GITLAK Software) - MIT;LegalTrademarks=;OriginalFilename=;ProductName=gllIdeAutomation;ProductVersion=1.2.0.4;Comments=</VerInfo_Keys>
+    <VerInfo_Build>7</VerInfo_Build>
+    <VerInfo_Keys>CompanyName=GITLAK Software;FileDescription=gllIdeAutomation;FileVersion=1.2.0.7;InternalName=gllIdeAutomation;LegalCopyright=Copyright (c) 2016-2026 Ian Branch (GITLAK Software) - MIT;LegalTrademarks=;OriginalFilename=;ProductName=gllIdeAutomation;ProductVersion=1.2.0.7;Comments=</VerInfo_Keys>
   </PropertyGroup>
   <PropertyGroup Condition="'$(Cfg_2)'!=''">
     <DCC_BplOutput>$(BDSCOMMONDIR)\Bpl\$(Platform)</DCC_BplOutput>
@@ -117,8 +117,8 @@
   <PropertyGroup Condition="'$(Cfg_2_Win64)'!=''">
     <VerInfo_IncludeVerInfo>true</VerInfo_IncludeVerInfo>
     <VerInfo_AutoIncVersion>true</VerInfo_AutoIncVersion>
-    <VerInfo_Build>4</VerInfo_Build>
-    <VerInfo_Keys>CompanyName=GITLAK Software;FileDescription=gllIdeAutomation;FileVersion=1.2.0.4;InternalName=gllIdeAutomation;LegalCopyright=Copyright (c) 2016-2026 Ian Branch (GITLAK Software) - MIT;LegalTrademarks=;OriginalFilename=;ProductName=gllIdeAutomation;ProductVersion=1.2.0.4;Comments=</VerInfo_Keys>
+    <VerInfo_Build>8</VerInfo_Build>
+    <VerInfo_Keys>CompanyName=GITLAK Software;FileDescription=gllIdeAutomation;FileVersion=1.2.0.8;InternalName=gllIdeAutomation;LegalCopyright=Copyright (c) 2016-2026 Ian Branch (GITLAK Software) - MIT;LegalTrademarks=;OriginalFilename=;ProductName=gllIdeAutomation;ProductVersion=1.2.0.8;Comments=</VerInfo_Keys>
   </PropertyGroup>
   <ItemGroup>
     <DelphiCompile Include="$(MainSource)">

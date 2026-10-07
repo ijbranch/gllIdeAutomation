@@ -781,7 +781,7 @@ begin
   for var oStep in aChain do
     if not ( oStep.Enabled and oStep.Visible ) then
       raise EAutoError.CreateCode( 'NotClickable', Format( '"%s" is %s', [ PlainCaption( oStep ),
-        IfThen( oStep.Enabled, 'hidden', 'disabled' ) ] ) );
+        if oStep.Enabled then 'hidden' else 'disabled' ] ) );
 
   var sName := oItem.Name;
   DeferToMainThread(
@@ -837,7 +837,7 @@ function RequireStoppedProcess: IOTAProcess;
 begin
 
   Result := RequireProcess;
-  if not ( Result.ProcessState in STOPPED_STATES ) then
+  if Result.ProcessState not in STOPPED_STATES then
     raise EAutoError.CreateCode( 'NotStopped', Format( 'The process is %s; pause it first',
       [ EnumText( TypeInfo( TOTAProcessState ), Ord( Result.ProcessState ) ) ] ) );
 

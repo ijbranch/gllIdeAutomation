@@ -286,7 +286,7 @@ begin
   var oContext := TRttiContext.Create;
   try
     var oType := oContext.GetType( APropInfo^.PropType^ );
-    if not ( oType is TRttiMethodType ) then
+    if oType is not TRttiMethodType then
       Exit( 'OnGetText is not a method type' );
 
     var oMethType := TRttiMethodType( oType );
@@ -303,8 +303,8 @@ begin
     if aParams[ 1 ].ParamType.TypeKind <> tkPointer then Exit;
     if ( aParams[ 2 ].ParamType.TypeKind <> tkInteger ) or ( aParams[ 2 ].ParamType.TypeSize <> SizeOf( Integer ) ) then Exit;
     if ( aParams[ 3 ].ParamType.TypeKind <> tkEnumeration ) or ( aParams[ 3 ].ParamType.TypeSize <> SizeOf( Byte ) ) then Exit;
-    if not ( pfVar in aParams[ 4 ].Flags ) then Exit;
-    if not ( aParams[ 4 ].ParamType.TypeKind in [ tkUString, tkWString ] ) then Exit;
+    if pfVar not in aParams[ 4 ].Flags then Exit;
+    if aParams[ 4 ].ParamType.TypeKind not in [ tkUString, tkWString ] then Exit;
 
     AWide  := aParams[ 4 ].ParamType.TypeKind = tkWString;
     Result := '';
@@ -326,7 +326,7 @@ begin
   if oHeader = nil then Exit;
 
   var oColumns := GetObjectProp( oHeader, 'Columns' );
-  if not ( oColumns is TCollection ) then Exit;
+  if oColumns is not TCollection then Exit;
 
   var oCollection := TCollection( oColumns );
   SetLength( Result, oCollection.Count );
@@ -634,7 +634,7 @@ begin
     raise ETreeTextRefused.CreateCode( 'NotVirtualTree',
       Format( '%s is a %s, which is not a virtual tree', [ AControl.Name, AControl.ClassName ] ) );
 
-  if not ( AControl is TWinControl ) or not TWinControl( AControl ).HandleAllocated then
+  if ( AControl is not TWinControl ) or not TWinControl( AControl ).HandleAllocated then
     raise ETreeTextRefused.CreateCode( 'NoWindow',
       Format( '%s has no window, so it cannot be made to paint', [ AControl.Name ] ) );
 

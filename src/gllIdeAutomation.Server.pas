@@ -742,7 +742,7 @@ begin
   // makes `as TJSONObject` raise EInvalidCast AND leak the parsed value. Test the
   // type instead and free the non-object value on the reject path.
   var oVal := TJSONObject.ParseJSONValue( ALine );
-  if not ( oVal is TJSONObject ) then
+  if oVal is not TJSONObject then
   begin
     oVal.Free;   // no-op if nil; frees a non-object JSON value otherwise
     Exit( ErrorJSON( 'BadRequest', 'invalid JSON' ) );
@@ -989,7 +989,7 @@ begin
 
   var oForm := AutoResolveForm( AReq );
   var oComp := AutoResolveComp( AReq, oForm );
-  if not ( oComp is TControl ) then
+  if oComp is not TControl then
     raise EAutoError.CreateCode( 'BadRequest', Format( '%s is a %s, not a control', [ oComp.Name, oComp.ClassName ] ) );
 
   //  FORK: TryGetValue alone is wrong here. It sets its out parameter to Default( T ) when the key
@@ -1129,7 +1129,7 @@ begin
       // array-typed properties (TFont, TMargins, TPopupMenu…), are neither readable as a
       // scalar nor writable through SetPropValue - listing them is pure noise in a payload
       // the caller pays for by the token.
-      if not ( pProp^.PropType^.Kind in VALUE_KINDS ) then Continue;
+      if pProp^.PropType^.Kind not in VALUE_KINDS then Continue;
       if pProp^.GetProc = nil then Continue;
       if AWritableOnly and ( pProp^.SetProc = nil ) then Continue;
 
@@ -1304,7 +1304,7 @@ begin
     // Async click: post BM_CLICK and let the reply go out before the message loop
     // delivers it. Only button-class window procedures implement BM_CLICK, so
     // anything else (incl. the unwindowed TSpeedButton) must use direct mode.
-    if not ( oComp is TButtonControl ) then
+    if oComp is not TButtonControl then
       raise EAutoError.CreateCode( 'NotButton',
         Format( '%s (%s) cannot take mode=message: BM_CLICK is only handled by button-class controls', [ oComp.Name, oComp.ClassName ] ) );
 
