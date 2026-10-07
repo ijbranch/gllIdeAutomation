@@ -38,7 +38,7 @@ procedure UnregisterIdeCommands;
 implementation
 
 uses
-  System.SysUtils, System.StrUtils, System.Classes, System.JSON, System.TypInfo, System.SyncObjs, System.Diagnostics,
+  System.SysUtils, System.Classes, System.JSON, System.TypInfo, System.SyncObjs, System.Diagnostics,
   System.Generics.Collections,
   Winapi.Windows,
   Vcl.Forms, Vcl.Menus,
